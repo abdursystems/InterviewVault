@@ -25,7 +25,7 @@ The frontend is built using **React** with modern libraries for UI, animations, 
 | 8     | react-icons              | Icons                            | `npm install react-icons`              |
 | 9     | react-router-dom         | Routing                          | `npm install react-router-dom`         |
 
----
+--- 
 
 ## ⚙️ Backend Requirements (Node.js)
 

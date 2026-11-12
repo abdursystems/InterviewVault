@@ -1,11 +1,15 @@
-const express = require("express")
-const { togglePinQuestion, updateQuestionNote, addQuestionsToSession } = require("../controllers/questionController.js")
-const { protect } = require("../middlewares/authMiddleware.js")
+const express = require("express");
+const {
+  togglePinQuestion,
+  updateQuestionNote,
+  addQuestions,
+} = require("../controllers/questionController.js");
+const { protect } = require("../middlewares/authMiddleware.js");
 
-const router = express.Router()
+const router = express.Router();
 
-router.post('/add', protect, addQuestionsToSession)
-router.post('/:id/pin', protect, togglePinQuestion)
-router.post('/:id/note', protect, updateQuestionNote)
+router.post("/add", protect, addQuestions);
+router.post("/:id/pin", protect, togglePinQuestion);
+router.post("/:id/note", protect, updateQuestionNote);
 
-module.exports = router
+module.exports = router;
