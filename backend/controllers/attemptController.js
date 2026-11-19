@@ -1,119 +1,250 @@
-const RecoveryPlan = require("../models/RecoveryPlan");
 const mongoose = require("mongoose");
 const Attempt = require("../models/Attempt");
 const Question = require("../models/Question");
 const UserSubtopicStats = require("../models/UserSubtopicStats");
+const RecoveryPlan = require("../models/RecoveryPlan");
 const { runPythonCode } = require("../utils/sandbox");
 
 const submitAttempt = async (req, res) => {
-  const {
-    userID,
-    questionID,
-    submittedCodeOrText,
-    timeTakenSeconds,
-    type,
-    status: clientStatus,
-  } = req.body;
-
-  // 1. Evaluate Code if it's a coding question
-  let finalStatus = clientStatus;
-  let testDetails = null;
-
-  const question = await Question.findById(questionID);
-  if (!question) return res.status(404).json({ error: "Question not found" });
-
-  if (type === "Coding" && clientStatus !== "Skipped") {
-    try {
-      const runnerResult = await runPythonCode(
-        submittedCodeOrText,
-        question.testCases,
-      );
-      finalStatus = runnerResult.success ? "Solved" : "Attempted";
-      testDetails = runnerResult.details;
-    } catch (error) {
-      // ADD THIS CONSOLE.LOG:
-      console.error("Sandbox Error:", error);
-      return res
-        .status(400)
-        .json({ error: "Code execution failed or timed out." });
-    }
-  }
-
-  // 2. Start the Atomic Database Transaction (Requirement S-3)
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    // Check user's PREVIOUS latest status on this question to prevent double-counting
-    const previousAttempt = await Attempt.findOne({ userID, questionID })
-      .sort({ createdAt: -1 })
-      .session(session);
-    const previousStatus = previousAttempt ? previousAttempt.status : null;
+    // 1. Prefer verified JWT user (SEC-3), fallback to body only if route is unprotected
+    const userID = req.user?._id || req.body.userID;
+    const {
+      questionID,
+      submittedCodeOrText,
+      timeTakenSeconds,
+      status: clientStatus,
+    } = req.body;
 
-    // Insert new Attempt record
-    const newAttempt = await Attempt.create(
-      [
-        {
-          userID,
-          questionID,
-          status: finalStatus,
+    if (!userID) {
+      return res
+        .status(401)
+        .json({ error: "User authentication is required." });
+    }
+
+    if (!questionID || !mongoose.Types.ObjectId.isValid(questionID)) {
+      return res.status(400).json({ error: "A valid questionID is required." });
+    }
+
+    const question = await Question.findById(questionID);
+    if (!question || question.isArchived) {
+      return res.status(404).json({ error: "Question not found" });
+    }
+
+    // FR-3 / FR-4 Exception: Reject empty submissions unless Skipped
+    const isSkipped = clientStatus === "Skipped";
+    if (!isSkipped && (!submittedCodeOrText || !submittedCodeOrText.trim())) {
+      return res.status(400).json({
+        error: "Submission cannot be empty unless the question is skipped.",
+      });
+    }
+
+    // 2. Evaluate Code if the DB question is a Coding question (do not trust req.body.type)
+    let finalStatus = clientStatus;
+    let testDetails = null;
+
+    if (question.type === "Coding" && !isSkipped) {
+      try {
+        const runnerResult = await runPythonCode(
           submittedCodeOrText,
-          timeTakenSeconds,
-        },
-      ],
-      { session },
-    );
+          question.testCases,
+        );
+        finalStatus = runnerResult.success ? "Solved" : "Attempted";
+        testDetails = runnerResult.details;
+      } catch (error) {
+        console.error("Sandbox Error:", error);
+        return res
+          .status(400)
+          .json({ error: "Code execution failed or timed out." });
+      }
+    }
 
-    // Update Subtopic Statistics Atomically
-    for (const subtopicID of question.subtopicIDs) {
-      // Determine increment/decrement logic
-      const incFields = {};
-      if (previousStatus !== finalStatus) {
-        incFields[finalStatus.toLowerCase()] = 1; // e.g., solved: 1
-        if (previousStatus) {
-          incFields[previousStatus.toLowerCase()] = -1; // e.g., attempted: -1
+    // Validate finalStatus before opening a DB transaction
+    if (!["Solved", "Attempted", "Skipped"].includes(finalStatus)) {
+      return res.status(400).json({
+        error:
+          "Valid status ('Solved', 'Attempted', or 'Skipped') is required.",
+      });
+    }
+
+    // 3. Start the Atomic Database Transaction (Requirement S-3)
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      const previousAttempt = await Attempt.findOne({ userID, questionID })
+        .sort({ createdAt: -1 })
+        .session(session);
+      const previousStatus = previousAttempt ? previousAttempt.status : null;
+
+      await Attempt.create(
+        [
+          {
+            userID,
+            questionID,
+            status: finalStatus,
+            submittedCodeOrText,
+            timeTakenSeconds,
+          },
+        ],
+        { session },
+      );
+
+      // Update Subtopic Statistics Atomically (Guard against empty $inc)
+      for (const subtopicID of question.subtopicIDs) {
+        const incFields = {};
+        if (previousStatus !== finalStatus) {
+          incFields[finalStatus.toLowerCase()] = 1;
+          if (previousStatus) {
+            incFields[previousStatus.toLowerCase()] = -1;
+          }
         }
+
+        const updateQuery = { $set: { lastPracticed: new Date() } };
+        if (Object.keys(incFields).length > 0) {
+          updateQuery.$inc = incFields;
+        }
+
+        await UserSubtopicStats.updateOne({ userID, subtopicID }, updateQuery, {
+          upsert: true,
+          session,
+        });
       }
 
-      await UserSubtopicStats.updateOne(
-        { userID, subtopicID },
+      // FR-8 Post-condition: Mark today's Recovery Plan item "Completed"
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+
+      await RecoveryPlan.updateOne(
         {
-          $inc: incFields,
-          $set: { lastPracticed: new Date() },
+          userID,
+          date: today,
+          "items.questionID": questionID,
         },
-        { upsert: true, session },
+        {
+          $set: { "items.$.state": "Completed" },
+        },
+        { session },
       );
+
+      await session.commitTransaction();
+      return res.status(201).json({
+        message: "Attempt recorded",
+        status: finalStatus,
+        testDetails,
+      });
+    } catch (error) {
+      await session.abortTransaction();
+      return res.status(500).json({
+        error: "Transaction failed",
+        details: error.message,
+      });
+    } finally {
+      session.endSession();
     }
-
-    // FR-8 Post-condition: If this question is in today's Recovery Plan, mark its item "Completed"
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-
-    await RecoveryPlan.updateOne(
-      {
-        userID,
-        date: today,
-        "items.questionID": questionID,
-      },
-      {
-        $set: { "items.$.state": "Completed" },
-      },
-      { session },
-    );
-
-    // Commit transaction
-    await session.commitTransaction();
-    res
-      .status(201)
-      .json({ message: "Attempt recorded", status: finalStatus, testDetails });
   } catch (error) {
-    await session.abortTransaction();
-    res
-      .status(500)
-      .json({ error: "Transaction failed", details: error.message });
-  } finally {
-    session.endSession();
+    return res.status(500).json({
+      error: "Failed to process attempt",
+      details: error.message,
+    });
   }
 };
 
-module.exports = { submitAttempt };
+// @desc    Get per-topic and per-subtopic stats + accuracy for Dashboard (FR-10)
+// @route   GET /api/attempts/dashboard
+// @access  Private (JWT)
+const getDashboardStats = async (req, res) => {
+  try {
+    const userID = req.user?._id || req.query.userID;
+    if (!userID) {
+      return res
+        .status(401)
+        .json({ error: "User authentication is required." });
+    }
+
+    const rawStats = await UserSubtopicStats.find({ userID }).populate({
+      path: "subtopicID",
+      select: "name topicID",
+      populate: { path: "topicID", select: "name" },
+    });
+
+    const subtopicStats = rawStats
+      .filter((s) => s.subtopicID)
+      .map((s) => {
+        const total = s.solved + s.attempted + s.skipped;
+        return {
+          subtopicID: s.subtopicID._id,
+          subtopicName: s.subtopicID.name,
+          topicID: s.subtopicID.topicID?._id || null,
+          topicName: s.subtopicID.topicID?.name || "Uncategorized",
+          solved: s.solved,
+          attempted: s.attempted,
+          skipped: s.skipped,
+          accuracy: total > 0 ? Math.round((s.solved / total) * 100) : 0,
+          lastPracticed: s.lastPracticed,
+        };
+      });
+
+    // Aggregate per-topic totals from distinct-question UserSubtopicStats
+    const topicMap = {};
+    for (const item of subtopicStats) {
+      const key = item.topicName;
+      if (!topicMap[key]) {
+        topicMap[key] = { topicName: key, solved: 0, attempted: 0, skipped: 0 };
+      }
+      topicMap[key].solved += item.solved;
+      topicMap[key].attempted += item.attempted;
+      topicMap[key].skipped += item.skipped;
+    }
+
+    const topicStats = Object.values(topicMap).map((t) => {
+      const total = t.solved + t.attempted + t.skipped;
+      return {
+        ...t,
+        accuracy: total > 0 ? Math.round((t.solved / total) * 100) : 0,
+      };
+    });
+
+    return res.status(200).json({ topicStats, subtopicStats });
+  } catch (error) {
+    return res.status(500).json({
+      error: "Failed to load dashboard stats",
+      details: error.message,
+    });
+  }
+};
+
+// @desc    Get chronological attempt history for History screen (FR-10)
+// @route   GET /api/attempts/history
+// @access  Private (JWT)
+const getAttemptHistory = async (req, res) => {
+  try {
+    const userID = req.user?._id || req.query.userID;
+    if (!userID) {
+      return res
+        .status(401)
+        .json({ error: "User authentication is required." });
+    }
+
+    const attempts = await Attempt.find({ userID })
+      .populate({
+        path: "questionID",
+        select: "statement difficulty type topicID subtopicIDs",
+        populate: [
+          { path: "topicID", select: "name" },
+          { path: "subtopicIDs", select: "name" },
+        ],
+      })
+      .sort({ createdAt: -1 })
+      .limit(100);
+
+    return res.status(200).json(attempts);
+  } catch (error) {
+    return res.status(500).json({
+      error: "Failed to load attempt history",
+      details: error.message,
+    });
+  }
+};
+
+module.exports = { submitAttempt, getDashboardStats, getAttemptHistory };
