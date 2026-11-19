@@ -1,98 +1,77 @@
-const Question = require("../models/Question.js")
-const Session = require("../models/Session.js")
+const Question = require("../models/Question");
+const Topic = require("../models/Topic");
+const Subtopic = require("../models/Subtopic");
 
-// @desc  add additional questions to an existing session
-// @route  POST /api/questions/add
-// @access  private
-exports.addQuestionsToSession = async (req, res) => {
-    try {
-        const { sessionId, questions } = req.body
+// @desc    Get all questions with optional filters (Topic, Subtopic, Difficulty, Type, Keyword)
+// @route   GET /api/questions
+// @access  Private (FR-2)
+const getQuestions = async (req, res) => {
+  try {
+    const { topicID, subtopicID, difficulty, type, search } = req.query;
+    const filter = { isArchived: false };
 
-        if (!sessionId || !questions || !Array.isArray(questions)) {
-            return res.status(400).json({
-                message: "Invalid Input Data"
-            })
-        }
-
-        const session = await Session.findById(sessionId)
-
-        if (!session) {
-            return res.status(404).json({
-                message: "Session Not Found"
-            })
-        }
-
-        // create new questions
-        const createQuestions = await Question.insertMany(
-            questions.map((q) => ({
-                session: sessionId,
-                question: q.question,
-                answer: q.answer
-            }))
-        )
-
-        // update session to include new question IDs
-        session.questions.push(...createQuestions.map((q) => q._id))
-        await session.save()
-
-        res.status(201).json(createQuestions)
-
-    } catch (error) {
-        res.status(500).json({ message: "Server Error" })
+    if (topicID) filter.topicID = topicID;
+    if (subtopicID) filter.subtopicIDs = subtopicID;
+    if (difficulty) filter.difficulty = difficulty;
+    if (type) filter.type = type;
+    if (search) {
+      filter.statement = { $regex: search, $options: "i" };
     }
-}
 
-// @desc  pin or unpin a question
-// @route  POST /api/questions/:id/pin
-// @access  private
-exports.togglePinQuestion = async (req, res) => {
-    try {
-        const question = await Question.findById(req.params.id)
+    const questions = await Question.find(filter)
+      .select("-testCases.isHidden")
+      .populate("topicID", "name")
+      .populate("subtopicIDs", "name")
+      .sort({ createdAt: -1 });
 
-        if (!question) {
-            return res.status(404).json({
-                success: false,
-                message: "Question Not Found"
-            })
-        }
+    res.status(200).json(questions);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Failed to fetch questions", error: error.message });
+  }
+};
 
-        question.isPinned = !question.isPinned
-        await question.save()
+// @desc    Get a single question by ID for the workspace (Sequence Diagram Step 2)
+// @route   GET /api/questions/:id
+// @access  Private (FR-3)
+const getQuestionById = async (req, res) => {
+  try {
+    const question = await Question.findById(req.params.id)
+      .populate("topicID", "name")
+      .populate("subtopicIDs", "name");
 
-        res.status(200).json({
-            success: true,
-            question
-        })
-
-    } catch (error) {
-        res.status(500).json({ message: "Server Error" })
+    if (!question || question.isArchived) {
+      return res.status(404).json({ message: "Question not found" });
     }
-}
 
-// @desc  update a note for a question
-// @route  POST /api/questions/:id/note
-// @access  private
-exports.updateQuestionNote = async (req, res) => {
-    try {
-        const { note } = req.body
-        const question = await Question.findById(req.params.id)
+    res.status(200).json(question);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Failed to fetch question", error: error.message });
+  }
+};
 
-        if (!question) {
-            return res.status(404).json({
-                success: false,
-                message: "Question Not Found"
-            })
-        }
+// @desc    Get all topics and subtopics for filter dropdowns
+// @route   GET /api/questions/taxonomy
+// @access  Private
+const getTaxonomy = async (req, res) => {
+  try {
+    const topics = await Topic.find().sort({ name: 1 });
+    const subtopics = await Subtopic.find()
+      .populate("topicID", "name")
+      .sort({ name: 1 });
+    res.status(200).json({ topics, subtopics });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Failed to fetch taxonomy", error: error.message });
+  }
+};
 
-        question.note = note || ""
-        await question.save()
-
-        res.status(200).json({
-            success: true,
-            question
-        })
-
-    } catch (error) {
-        res.status(500).json({ message: "Server Error" })
-    }
-}
+module.exports = {
+  getQuestions,
+  getQuestionById,
+  getTaxonomy,
+};

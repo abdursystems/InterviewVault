@@ -1,51 +1,52 @@
-require("dotenv").config()
-const express = require("express")
-const cors = require("cors")
-const path = require("path")
-const connectDB = require("./config/db.js")
-const { protect } = require("./middlewares/authMiddleware.js")
-const { generateInterviewQuestions, generateConceptExplanation } = require("./controllers/aiController.js")
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const path = require("path");
 
-const authRoutes = require("./routes/authRoutes.js")
-const sessionRoutes = require("./routes/sessionRoutes.js")
-const questionRoutes = require("./routes/questionRoutes.js")
+// DB Connection
+const connectDB = require("./config/db.js");
 
-const app = express()
+// Import Route Modules
+const authRoutes = require("./routes/authRoutes.js");
+const questionRoutes = require("./routes/questionRoutes.js");
+const attemptRoutes = require("./routes/attemptRoutes.js");
+const recoveryPlanRoutes = require("./routes/recoveryPlanRoutes.js");
 
-// Middleware to handle cors
+const app = express();
+
+// 1. Establish Database Connection
+connectDB();
+
+// 2. Global Middleware
 app.use(
-    cors({
-        origin: "*",
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        allowedHeaders: ["Content-Type", "Authorization"],
-    })
-)
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
+app.use(express.json());
 
-connectDB()
+// 3. Static Files
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Middleware
-app.use(express.json())
-
-// ✅ ROOT ROUTE (Fixes Cannot GET /)
+// 4. Health Check
 app.get("/", (req, res) => {
-    res.send("Backend is running successfully 🚀")
-})
+  res.send("InterviewVault Backend is running successfully 🚀");
+});
 
-// Routes
-app.use("/api/auth", authRoutes)
-app.use("/api/sessions", sessionRoutes)
-app.use("/api/questions", questionRoutes)
+// 5. Mounted InterviewVault API Routers
+app.use("/api/auth", authRoutes);
+app.use("/api/questions", questionRoutes);
+app.use("/api/attempts", attemptRoutes);
+app.use("/api/recovery-plan", recoveryPlanRoutes);
 
-app.use("/api/ai/generate-questions", protect, generateInterviewQuestions)
-app.use("/api/ai/generate-explanation", protect, generateConceptExplanation)
+// 6. Start Server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(
+    `Server running in ${process.env.NODE_ENV || "development"} mode on port ${PORT}`,
+  );
+});
 
-// Serve uploads folder
-app.use("/uploads", express.static(path.join(__dirname, "uploads"), {}))
-
-// Start Server
-if (process.env.NODE_ENV !== "production") {
-    const PORT = process.env.PORT || 5000
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
-}
-
-module.exports = app
+module.exports = app;

@@ -1,11 +1,18 @@
-const express = require("express")
-const { togglePinQuestion, updateQuestionNote, addQuestionsToSession } = require("../controllers/questionController.js")
-const { protect } = require("../middlewares/authMiddleware.js")
+const express = require("express");
+const {
+  getQuestions,
+  getQuestionById,
+  getTaxonomy,
+} = require("../controllers/questionController");
+const { protect } = require("../middlewares/authMiddleware");
 
-const router = express.Router()
+const router = express.Router();
 
-router.post('/add', protect, addQuestionsToSession)
-router.post('/:id/pin', protect, togglePinQuestion)
-router.post('/:id/note', protect, updateQuestionNote)
+// Browse & filter questions (FR-2) and fetch taxonomy dropdowns
+router.get("/", protect, getQuestions);
+router.get("/taxonomy", protect, getTaxonomy);
 
-module.exports = router
+// Fetch single question for the workspace (Sequence Diagram Step 2 / FR-3)
+router.get("/:id", protect, getQuestionById);
+
+module.exports = router;
