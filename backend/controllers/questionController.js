@@ -1,81 +1,77 @@
-const Question = require("../models/Question.js");
+const Question = require("../models/Question");
+const Topic = require("../models/Topic");
+const Subtopic = require("../models/Subtopic");
 
-// @desc  add additional questions
-// @route  POST /api/questions/add
-// @access  private
-exports.addQuestions = async (req, res) => {
+// @desc    Get all questions with optional filters (Topic, Subtopic, Difficulty, Type, Keyword)
+// @route   GET /api/questions
+// @access  Private (FR-2)
+const getQuestions = async (req, res) => {
   try {
-    const { questions } = req.body;
+    const { topicID, subtopicID, difficulty, type, search } = req.query;
+    const filter = { isArchived: false };
 
-    if (!questions || !Array.isArray(questions)) {
-      return res.status(400).json({
-        message: "Invalid Input Data",
-      });
+    if (topicID) filter.topicID = topicID;
+    if (subtopicID) filter.subtopicIDs = subtopicID;
+    if (difficulty) filter.difficulty = difficulty;
+    if (type) filter.type = type;
+    if (search) {
+      filter.statement = { $regex: search, $options: "i" };
     }
 
-    // create new questions
-    const createdQuestions = await Question.insertMany(
-      questions.map((q) => ({
-        question: q.question,
-        answer: q.answer,
-      })),
-    );
+    const questions = await Question.find(filter)
+      .select("-testCases.isHidden")
+      .populate("topicID", "name")
+      .populate("subtopicIDs", "name")
+      .sort({ createdAt: -1 });
 
-    res.status(201).json(createdQuestions);
+    res.status(200).json(questions);
   } catch (error) {
-    res.status(500).json({ message: "Server Error" });
+    res
+      .status(500)
+      .json({ message: "Failed to fetch questions", error: error.message });
   }
 };
 
-// @desc  pin or unpin a question
-// @route  POST /api/questions/:id/pin
-// @access  private
-exports.togglePinQuestion = async (req, res) => {
+// @desc    Get a single question by ID for the workspace (Sequence Diagram Step 2)
+// @route   GET /api/questions/:id
+// @access  Private (FR-3)
+const getQuestionById = async (req, res) => {
   try {
-    const question = await Question.findById(req.params.id);
+    const question = await Question.findById(req.params.id)
+      .populate("topicID", "name")
+      .populate("subtopicIDs", "name");
 
-    if (!question) {
-      return res.status(404).json({
-        success: false,
-        message: "Question Not Found",
-      });
+    if (!question || question.isArchived) {
+      return res.status(404).json({ message: "Question not found" });
     }
 
-    question.isPinned = !question.isPinned;
-    await question.save();
-
-    res.status(200).json({
-      success: true,
-      question,
-    });
+    res.status(200).json(question);
   } catch (error) {
-    res.status(500).json({ message: "Server Error" });
+    res
+      .status(500)
+      .json({ message: "Failed to fetch question", error: error.message });
   }
 };
 
-// @desc  update a note for a question
-// @route  POST /api/questions/:id/note
-// @access  private
-exports.updateQuestionNote = async (req, res) => {
+// @desc    Get all topics and subtopics for filter dropdowns
+// @route   GET /api/questions/taxonomy
+// @access  Private
+const getTaxonomy = async (req, res) => {
   try {
-    const { note } = req.body;
-    const question = await Question.findById(req.params.id);
-
-    if (!question) {
-      return res.status(404).json({
-        success: false,
-        message: "Question Not Found",
-      });
-    }
-
-    question.note = note || "";
-    await question.save();
-
-    res.status(200).json({
-      success: true,
-      question,
-    });
+    const topics = await Topic.find().sort({ name: 1 });
+    const subtopics = await Subtopic.find()
+      .populate("topicID", "name")
+      .sort({ name: 1 });
+    res.status(200).json({ topics, subtopics });
   } catch (error) {
-    res.status(500).json({ message: "Server Error" });
+    res
+      .status(500)
+      .json({ message: "Failed to fetch taxonomy", error: error.message });
   }
+};
+
+module.exports = {
+  getQuestions,
+  getQuestionById,
+  getTaxonomy,
 };

@@ -1,3 +1,4 @@
+const RecoveryPlan = require("../models/RecoveryPlan");
 const mongoose = require("mongoose");
 const Attempt = require("../models/Attempt");
 const Question = require("../models/Question");
@@ -83,6 +84,22 @@ const submitAttempt = async (req, res) => {
         { upsert: true, session },
       );
     }
+
+    // FR-8 Post-condition: If this question is in today's Recovery Plan, mark its item "Completed"
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    await RecoveryPlan.updateOne(
+      {
+        userID,
+        date: today,
+        "items.questionID": questionID,
+      },
+      {
+        $set: { "items.$.state": "Completed" },
+      },
+      { session },
+    );
 
     // Commit transaction
     await session.commitTransaction();

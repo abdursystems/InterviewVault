@@ -6,24 +6,15 @@ const path = require("path");
 // DB Connection
 const connectDB = require("./config/db.js");
 
-// Middleware
-const { protect } = require("./middlewares/authMiddleware.js");
-
-// Controllers
-const {
-  generateInterviewQuestions,
-  generateConceptExplanation,
-} = require("./controllers/aiController.js");
-
 // Import Route Modules
-const attemptRoutes = require("./routes/attemptRoutes");
 const authRoutes = require("./routes/authRoutes.js");
-// const sessionRoutes = require("./routes/sessionRoutes.js");
 const questionRoutes = require("./routes/questionRoutes.js");
+const attemptRoutes = require("./routes/attemptRoutes.js");
+const recoveryPlanRoutes = require("./routes/recoveryPlanRoutes.js");
 
 const app = express();
 
-// 1. Establish Database Connection (Once)
+// 1. Establish Database Connection
 connectDB();
 
 // 2. Global Middleware
@@ -39,22 +30,18 @@ app.use(express.json());
 // 3. Static Files
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// 4. Routes
+// 4. Health Check
 app.get("/", (req, res) => {
-  res.send("Backend is running successfully 🚀");
+  res.send("InterviewVault Backend is running successfully 🚀");
 });
 
-// Mounted Routers
+// 5. Mounted InterviewVault API Routers
 app.use("/api/auth", authRoutes);
-// app.use("/api/sessions", sessionRoutes);
 app.use("/api/questions", questionRoutes);
 app.use("/api/attempts", attemptRoutes);
+app.use("/api/recovery-plan", recoveryPlanRoutes);
 
-// Specific Endpoints (Changed from app.use to app.post)
-app.post("/api/ai/generate-questions", protect, generateInterviewQuestions);
-app.post("/api/ai/generate-explanation", protect, generateConceptExplanation);
-
-// 5. Start Server (Once)
+// 6. Start Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(
