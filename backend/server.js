@@ -11,6 +11,7 @@ const authRoutes = require("./routes/authRoutes.js");
 const questionRoutes = require("./routes/questionRoutes.js");
 const attemptRoutes = require("./routes/attemptRoutes.js");
 const recoveryPlanRoutes = require("./routes/recoveryPlanRoutes.js");
+const adminRoutes = require("./routes/adminRoutes.js");
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/questions", questionRoutes);
 app.use("/api/attempts", attemptRoutes);
 app.use("/api/recovery-plan", recoveryPlanRoutes);
+app.use("/api/admin", adminRoutes); // Admin only (protect + adminOnly inside the router)
 
 // 6. Start Server
 const PORT = process.env.PORT || 5000;

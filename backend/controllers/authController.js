@@ -120,6 +120,13 @@ const loginUser = async (req, res) => {
       return res.status(401).json({ message: "Invalid Email or Password" });
     }
 
+    // FR-11: an Admin has disabled this account
+    if (user.isActive === false) {
+      return res
+        .status(403)
+        .json({ message: "Account Disabled. Contact an administrator." });
+    }
+
     // Clear failed attempts on successful login
     failedLoginAttempts.delete(normalizedEmail);
 
