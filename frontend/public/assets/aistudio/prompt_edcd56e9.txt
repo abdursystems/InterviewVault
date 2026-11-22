@@ -1,0 +1,67 @@
+# ROLE & OBJECTIVE
+Act as a Principal Frontend Engineer and Product Designer. Build the complete, responsive React + Tailwind CSS frontend for **InterviewVault** — a diagnostic technical interview preparation platform for CS students covering DSA, OOP, DBMS, and OS.
+
+# STRICT ARCHITECTURE & BACKEND PRESERVATION RULES (DO NOT VIOLATE)
+1. **Frontend-Only:** Do NOT provision Firebase, Firestore, or generate a Node.js backend. An existing Express + MongoDB backend is already built and running at `VITE_API_URL` (default `http://localhost:5000/api`).
+2. **Single API Adapter Layer (`src/services/api.js`):**
+   - Route ALL network calls through `src/services/api.js` using Axios with:
+     - **Request interceptor:** Automatically attach `Authorization: Bearer <token>` from `localStorage`.
+     - **Response interceptor:** If any protected request returns HTTP `401` (token missing/expired after 60m), clear stored auth state and redirect to `/login` (do NOT redirect on failed `/auth/login` attempts—display the inline error instead).
+   - Include a top-level constant `const USE_MOCK_DATA = true;` so this preview works seamlessly in AI Studio.
+   - When `USE_MOCK_DATA` is `true`, return realistic CS interview mock data matching the EXACT JSON contracts below key-for-key. When switched to `false`, hit the real REST endpoints with zero component changes.
+   - **NEVER invent unlisted endpoints** (no `/api/run`, no `/api/ai/*`, no `/api/admin/*` calls). Use ONLY the exact endpoints listed below.
+3. **Modular File Structure:** Strictly separate `src/services/api.js`, `src/context/AuthContext.jsx`, `src/components/`, and `src/pages/`. Never dump multiple pages into `App.jsx`.
+4. **Hard Scope Boundaries (SRS Compliance):**
+   - Coding questions support **Python only** (use `@monaco-editor/react` configured for Python).
+   - Do NOT add an AI mock interviewer, AI chatbot, AI-generated code feedback, or webcam/proctoring widgets. All recommendations come strictly from the deterministic Root-Cause Diagnosis backend.
+
+# EXACT BACKEND API CONTRACTS (MATCH EVERY FIELD NAME)
+- `POST /api/auth/register` -> body: `{ name, email, password }` (password min 8 chars) -> returns `{ _id, name, email, role, token }` (`role` is `"Student"` or `"Admin"`).
+- `POST /api/auth/login` -> body: `{ email, password }` -> returns `{ _id, name, email, role, token }`. Handle `401` invalid credentials and `429` temporary lockout (5 failed attempts in 10 mins) by surfacing `error.response.data.message`.
+- `GET /api/auth/profile` -> returns authenticated user `{ _id, name, email, role }` for session hydration on refresh.
+- `GET /api/questions/taxonomy` -> returns `{ topics: [{ _id, name }], subtopics: [{ _id, name, topicID }] }`.
+- `GET /api/questions` -> query params: `topicID`, `subtopicID`, `difficulty` ("Easy"|"Medium"|"Hard"), `type` ("Theory"|"Coding"), `search` -> returns array of:
+  `{ _id, statement, topicID: { _id, name }, subtopicIDs: [{ _id, name }], difficulty, type }`.
+- `GET /api/questions/:id` -> returns single question with `modelAnswer` (for Theory) and `testCases: [{ input, expectedOutput, isHidden }]` (for Coding).
+- `POST /api/attempts` -> body: `{ questionID, submittedCodeOrText, timeTakenSeconds, status }`
+  - `userID` is extracted from the JWT on the backend; do NOT send `userID`.
+  - `status` is REQUIRED: send `"Attempted"` on Coding submissions (the backend sandbox automatically overrides it to `"Solved"` if all test cases pass), `"Solved"` or `"Attempted"` on Theory self-assessment, and `"Skipped"` on Skip.
+  - Returns `{ message, status, testDetails: [{ passed, actual, expected, error }] }`.
+- `GET /api/recovery-plan` -> returns:
+  `{ message, notice, plan: { _id, date, mode: "RootCause"|"GeneralPractice"|"Onboarding", diagnosedSubtopicID: { _id, name } | null, items: [{ questionID: { _id, statement, difficulty, type, topicID, subtopicIDs }, role: "Focus"|"Retry"|"Review"|"Stretch", reason, state: "Pending"|"Completed" }] } }`.
+  - **Defensive Null Handling:** `plan.diagnosedSubtopicID` is `null` in `"Onboarding"` and `"GeneralPractice"` modes. Always use optional chaining (`plan?.diagnosedSubtopicID?.name`) and gracefully handle empty `items` or `notice` banners.
+- `GET /api/attempts/dashboard` -> returns `{ topicStats: [{ topicName, solved, attempted, skipped, accuracy }], subtopicStats: [{ subtopicID, subtopicName, topicName, solved, attempted, skipped, accuracy, lastPracticed }] }`. Handle empty arrays (`[]`) gracefully for brand-new users with zero attempts.
+- `GET /api/attempts/history` -> returns chronological array of `{ _id, questionID: { _id, statement, difficulty, type, topicID, subtopicIDs }, status, timeTakenSeconds, createdAt }`.
+
+# VISUAL DESIGN SYSTEM (ENGINEERING-GRADE, NO GENERIC AI SLOP)
+- **Aesthetic Benchmark:** Linear / Vercel / Raycast developer workspace — crisp, high-signal, zero visual clutter.
+- **Theme:** Refined dark-first developer workspace (`#09090B` canvas, `#111114` elevated cards, `#18181B` hover surfaces, `1px solid #27272A` hairline borders) with an optional Light Mode toggle. Avoid neon glow, heavy drop shadows, and generic purple/pink gradients.
+- **Typography:** `Inter` for UI copy and `JetBrains Mono` for code, accuracy percentages, timers, test-case I/O, and difficulty/role badges. Use `tabular-nums` for all metrics and timers.
+- **Semantic Palette:**
+  - Solved / Pass: Emerald (`#10B981`)
+  - Attempted / Warning: Amber (`#F59E0B`)
+  - Skipped / Muted: Zinc (`#71717A`)
+  - Focus Role: Rose/Coral accent | Retry Role: Amber accent | Review Role: Sky accent | Stretch Role: Indigo accent.
+- **Micro-interactions & States:** Skeleton loading shimmers, subtle border-color transitions on hover, inline field validation errors, confirmation modal before destructive actions (like Skip or Logout), and full keyboard accessibility.
+
+# REQUIRED SCREENS & UX BEHAVIORS
+1. **App Shell:** Persistent top navigation bar with InterviewVault logo, navigation links (Dashboard, Recovery Plan, Question Bank, History), authenticated user name/role badge, theme toggle, and Logout button (with confirmation modal).
+2. **Login / Register (`/login`):** Split architectural layout—clean minimal auth form on the left with inline validation errors (email format, password >= 8 chars, backend 401/429 messages), diagnostic value proposition preview on the right.
+3. **Dashboard (`/dashboard`):**
+   - Top hero banner highlighting today's **Root-Cause Diagnosis** (e.g., `"Root Cause Detected: Recursion"`, or an `"Onboarding Mode — Complete 5 attempts to unlock Root-Cause Diagnosis"` / `"General Practice Mode"` banner when `diagnosedSubtopicID` is `null`) + progress bar (`X/5 Completed` in today's plan) with CTA to open `/recovery-plan`.
+   - Per-topic mastery grid (DSA, OOP, DBMS, OS) with accuracy rings/bars and Solved/Attempted/Skipped breakdown (with a clean onboarding empty state if `topicStats` is empty).
+   - Subtopic weakness table sorted from lowest accuracy to highest, showing `lastPracticed` dates.
+4. **Daily Recovery Plan (`/recovery-plan`):**
+   - Header showing plan `mode` badge (`RootCause` / `GeneralPractice` / `Onboarding`), diagnosed subtopic (if present), and any `notice` banner.
+   - 5 structured cards (2 Focus, 1 Retry, 1 Review, 1 Stretch). Each card prominently displays its color-coded `role` badge, difficulty, topic/subtopic chips, the **one-line `reason` rationale** in a highlighted diagnostic callout bar, `Pending`/`Completed` status pill, and a direct `"Solve Now"` button linking to `/questions/:id`.
+5. **Question Browser (`/questions`):**
+   - Sticky filter toolbar: keyword search, cascading Topic -> Subtopic dropdowns (populated from `/questions/taxonomy`), Difficulty, Type, and Status filters + Reset button.
+   - Cross-reference `/api/attempts/history` client-side to display each question's latest user status pill (`Solved`, `Attempted`, `Skipped`, or `Unattempted`).
+   - High-density table/list with hover states, subtopic chips, difficulty badges, and clean empty state displaying exact text `"No questions found"`.
+6. **Question Workspace (`/questions/:id`):**
+   - Balanced 2-column split pane (`45%` statement / `55%` workspace) with a live mono-spaced session timer (`MM:SS`).
+   - **If `type === "Coding"`:** Render Monaco Editor (Python, dark theme, line numbers, clean starter template) on top, and a tabbed **Test Cases / Execution Output** console panel below showing visible `testCases` (`isHidden === false`), a badge noting hidden test case count (never exposing hidden inputs/outputs), and Pass/Fail diffs from `testDetails` after execution. Both **Run Tests** and **Submit** invoke `POST /api/attempts` (with `status: "Attempted"` so the backend sandbox evaluates all tests and returns the authoritative `status` and `testDetails`).
+   - **If `type === "Theory"`:** Render a clean structured Markdown/text editor. After clicking **Submit**, reveal the `modelAnswer` side-by-side with the user's response and prompt explicit self-assessment buttons: **"Mark as Solved"** (`status: "Solved"`) vs. **"Needs Practice (Attempted)"** (`status: "Attempted"`), which submits `POST /api/attempts`.
+   - Action bar: **Run Tests** (Coding), **Submit**, and **Skip** (with confirmation modal sending `status: "Skipped"`). Reject empty submissions unless skipped. Auto-save drafts in `localStorage` keyed by `questionID` and preserve the draft with a retry banner if saving fails.
+7. **Attempt History (`/history`):**
+   - Filterable timeline/table of past attempts showing timestamp, question statement (clickable to re-attempt), topic/subtopic tags, status badge (`Solved`/`Attempted`/`Skipped`), and formatted `timeTakenSeconds`.

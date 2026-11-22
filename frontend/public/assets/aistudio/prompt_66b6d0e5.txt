@@ -1,0 +1,63 @@
+# ROLE & OBJECTIVE
+Act as a Principal Frontend Architect and QA Engineer conducting a strict pre-export code audit of **InterviewVault** (both Student and Admin portals) before we pull this codebase into a local Vite + Express + MongoDB environment.
+
+Inspect EVERY file in the project (`package.json`, `vite.config.*`, `index.html`, `src/services/api.js`, `src/context/AuthContext.jsx`, `src/hooks/*`, `src/components/*`, `src/pages/*`, and `src/App.jsx`) across the 6 audit passes below. Fix every real defect you discover, and output a structured Audit Report at the end.
+
+# STRICT NON-DESTRUCTIVE GUARDRAILS
+1. **Do NOT redesign the visual theme, layout, or styling** unless fixing a broken layout, overflow, z-index overlap, or unreadable contrast bug.
+2. **Do NOT remove any Student or Admin screens or SRS features.**
+3. **Do NOT invent new backend endpoints** or add Firebase/backend server code.
+
+# THE 6-PASS END-TO-END AUDIT CHECKLIST
+
+## PASS 1: Syntactical, Build & Dependency Hazards
+- Verify every `import`/`export` path resolves cleanly (check case sensitivity for Linux/macOS/Windows portability and missing default vs. named exports).
+- Confirm `package.json` lists every imported third-party package (`react-router-dom`, `axios`, `@monaco-editor/react`, `lucide-react`, `gsap`, `lenis`, etc.) with compatible versions and zero missing imports.
+- Check for JSX syntax issues, duplicate object keys, missing React `key` props in `.map()` loops, and unsafe `process.env.*` references (must use `import.meta.env.VITE_API_URL` for Vite).
+
+## PASS 2: `USE_MOCK_DATA = false` Live-Backend Parity (CRITICAL)
+Audit `src/services/api.js` and every page component to guarantee zero breakage the moment `USE_MOCK_DATA` is flipped to `false`:
+- Confirm **NO component** imports mock data directly or bypasses `src/services/api.js`.
+- Verify every API method uses ONLY these exact endpoints and payload shapes:
+  - `POST /api/auth/register` (`{ name, email, password }`) & `POST /api/auth/login` (`{ email, password }`) -> `{ _id, name, email, role, token }`
+  - `GET /api/auth/profile` -> `{ _id, name, email, role }`
+  - `GET /api/questions/taxonomy` -> `{ topics, subtopics }`
+  - `GET /api/questions` (params: `topicID`, `subtopicID`, `difficulty`, `type`, `search`)
+  - `GET /api/questions/:id` (visible `testCases` + optional `hiddenTestCount`, `modelAnswer`)
+  - `POST /api/attempts` -> body MUST be `{ questionID, submittedCodeOrText, timeTakenSeconds, status }` ONLY (must NOT send `userID` or `type`; Coding Run Tests & Submit must send `status: "Attempted"`; empty submissions blocked unless `status: "Skipped"`).
+  - `GET /api/recovery-plan` -> `{ message, notice, plan: { _id, date, mode, diagnosedSubtopicID, items } }`
+  - `GET /api/attempts/dashboard` -> `{ topicStats, subtopicStats }`
+  - `GET /api/attempts/history` -> chronological attempt array
+  - Admin routes: `GET /api/admin/topics`, `GET/POST/PUT/DELETE /api/admin/subtopics`, `GET/POST/PUT/DELETE /api/admin/questions`, `GET /api/admin/questions/:id`, `POST /api/admin/questions/:id/restore`, `GET /api/admin/users`, `PUT /api/admin/users/:id/role`, `PUT /api/admin/users/:id/active`, `DELETE /api/admin/users/:id`, `GET /api/admin/export`.
+- Verify mock-mode responses and live Axios responses return the **exact same object shape** (avoid wrapping one in `.data` while the other returns raw arrays).
+- Confirm the dev-only Mock Role Switcher is strictly gated behind `if (USE_MOCK_DATA)` so it completely disappears in live mode.
+
+## PASS 3: Null, Empty-State & Edge-Case Crash Guards
+Verify optional chaining and graceful UI fallbacks for every real-world edge case:
+- `plan?.diagnosedSubtopicID` is `null` in `"Onboarding"` and `"GeneralPractice"` modes.
+- `topicStats: []`, `subtopicStats: []`, and `attempts: []` for brand-new users (zero `NaN%` accuracy or division-by-zero errors; show an inviting empty state).
+- `attempt.questionID` could be `null` in `/history` if a question was ever hard-deleted.
+- `subtopic.topicID` may be either a populated object `{ _id, name }` or a raw string ID—normalize safely when cascading Topic -> Subtopic dropdowns.
+- `testDetails` may be empty or omitted on Theory/Skip attempts.
+- Question Browser empty search/filter result displays exact text `"No questions found"`.
+- HTTP error handling works across both `error.response?.data?.message` and `error.response?.data?.error` (covering `400`, `401`, `403`, `409`, `429`, `500`).
+
+## PASS 4: Auth Lifecycle, RBAC & Security Hygiene
+- **Hydration Race Condition:** Confirm `AuthContext` uses an `authLoading` state while hydrating `GET /api/auth/profile` on page refresh so deep links like `/admin/questions` or `/questions/:id` do not falsely flash `/login` or `403`.
+- **401 Interceptor Loop:** Confirm the Axios `401` auto-logout interceptor does NOT trigger an infinite reload loop when `POST /api/auth/login` returns `401` for invalid credentials, and properly surfaces `429` lockout errors.
+- **RBAC (`AdminRoute`):** Confirm `"Student"` users cannot access `/admin/*` and see `"Access denied: Admin privileges required"`, and the Admin Console nav link is hidden for Students.
+- **Admin Self-Protection & Integrity:** Confirm the logged-in admin cannot change their own role, disable themselves, or delete themselves on `/admin/users`; confirm `409` on deleting an attempted user offers disabling instead; confirm `409` on changing `subtopicIDs` of an attempted question displays cleanly inside `QuestionFormModal`; confirm `DELETE /api/admin/questions/:id` distinguishes `{ deleted: true }` vs. `{ archived: true }`.
+- **XSS & Scope Check:** Confirm zero usage of `dangerouslySetInnerHTML`, no out-of-scope AI chat/feedback widgets, Python-only Monaco Editor, and hidden test cases (`isHidden: true`) never rendered on the Student workspace.
+
+## PASS 5: React Hooks, State Leaks & Motion (GSAP + Lenis)
+- **Strict Mode & GSAP:** Verify every GSAP animation uses `gsap.context()` inside `useEffect` with `return () => ctx.revert()` so elements never stay trapped at `opacity: 0`.
+- **Lenis Scroll Safety:** Confirm Lenis is disabled on `/questions/:id` and `data-lenis-prevent` is applied to Monaco Editor wrappers, test output consoles, modals, and scrollable tables/dropdowns.
+- **Question Workspace State Reset:** Confirm navigating from `/questions/id1` to `/questions/id2` properly resets the timer, code/text draft, `testDetails`, and Theory `modelAnswer` reveal state, and cleans up `setInterval` timers on unmount.
+- **Stale Requests:** Confirm filter fetches in Question Browser and Admin Question Bank guard against race conditions (via `AbortController` or cancellation flag).
+- **Keyboard & Destructive Actions:** Confirm Skip, Logout, Delete, and Role Change actions require a confirmation modal and modals close on `Escape`.
+
+## PASS 6: Output Format
+After applying all fixes, reply with a concise **Pre-Export QA Report** containing:
+1. **Critical & High Fixes Applied** (file path, bug found, exact fix made).
+2. **Medium & Edge-Case Fixes Applied**.
+3. **Live-Cutover Checklist** (confirming exact file & line number of `USE_MOCK_DATA`, required `.env` keys, and confirming zero remaining mock leaks or unlisted endpoints).

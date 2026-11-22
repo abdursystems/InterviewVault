@@ -1,0 +1,86 @@
+# TASK: ADD FULL ADMIN CONSOLE TO INTERVIEWVAULT (FR-11, UC-15 TO UC-17)
+Act as a Principal Frontend Engineer and Product Designer. Extend the existing InterviewVault React + Tailwind CSS application with a complete, high-craft **Admin Dashboard & Content Management Console** mounted under `/admin/*`, matching our existing visual design system, typography, and motion style.
+
+# STRICT PRESERVATION & ARCHITECTURE RULES (DO NOT VIOLATE)
+1. **Zero Regression on Student Views:** Do NOT break, redesign, or remove any existing Student pages (`/dashboard`, `/recovery-plan`, `/questions`, `/questions/:id`, `/history`, `/login`) or existing student API functions in `src/services/api.js`.
+2. **Extend the Existing API Adapter (`src/services/api.js`):**
+   - Add all Admin API methods inside `src/services/api.js` using the existing Axios instance (with the Bearer JWT request interceptor and 401 response interceptor).
+   - Respect the existing `USE_MOCK_DATA` boolean. When `USE_MOCK_DATA === true`, provide realistic stateful mock data (supporting create, edit, archive, restore, role toggle, active toggle, delete, and anonymized export) matching the EXACT JSON contracts below key-for-key.
+   - In mock mode ONLY (`USE_MOCK_DATA === true`), add a subtle dev-only **"Switch Mock Role (Student / Admin)"** toggle in the navigation bar so I can preview both portals inside AI Studio; hide it automatically when `USE_MOCK_DATA === false`.
+   - **NEVER invent unlisted endpoints** (no `/api/admin/stats`, no `/api/admin/topics` POST/DELETE, no AI question generators). Use ONLY the exact `/api/admin/*` routes listed below.
+3. **Modular File Structure:** Keep admin code cleanly isolated inside `src/pages/admin/` (`AdminLayout.jsx`, `AdminOverview.jsx`, `AdminQuestions.jsx`, `AdminSubtopics.jsx`, `AdminUsers.jsx`, `AdminExport.jsx`) and `src/components/admin/` (`AdminRoute.jsx`, `QuestionFormModal.jsx`, `ConfirmActionModal.jsx`).
+4. **Role-Based Access Control (SEC-3 / FR-11):**
+   - Create an `AdminRoute` wrapper that checks `user?.role === "Admin"`. If an authenticated `"Student"` visits `/admin/*`, render a clean **403 Access Denied** state (`"Access denied: Admin privileges required"`) with a button back to `/dashboard`.
+   - In the main App Shell navbar, conditionally show an **"Admin Console"** button/link ONLY when `user?.role === "Admin"`. When an Admin logs in, allow seamless switching between the Admin Console (`/admin`) and Student View (`/dashboard`).
+
+# EXACT ADMIN BACKEND API CONTRACTS (MATCH EVERY FIELD NAME & STATUS CODE)
+All routes below require `Authorization: Bearer <token>` and `role === "Admin"`:
+
+1. **Topics (Read-Only):**
+   - `GET /api/admin/topics` -> returns `[{ _id, name }]` (sorted alphabetically: DBMS, DSA, OOP, OS).
+
+2. **Subtopics (UC-15):**
+   - `GET /api/admin/subtopics?topicID=` -> returns `[{ _id, name, topicID: { _id, name } }]`.
+   - `POST /api/admin/subtopics` -> body: `{ topicID, name }` -> returns `201` created subtopic. Handle `409` (`"Subtopic already exists in this topic"`).
+   - `PUT /api/admin/subtopics/:id` -> body: `{ name }` -> returns updated subtopic. Handle `409` duplicate name error.
+   - `DELETE /api/admin/subtopics/:id` -> returns `{ deleted: true }`. Handle `409` (`"Cannot delete: X question(s) use this subtopic"`).
+
+3. **Question Bank (UC-16 / FR-5 / FR-11):**
+   - `GET /api/admin/questions` -> query params: `topicID`, `subtopicID`, `difficulty` ("Easy"|"Medium"|"Hard"), `type` ("Theory"|"Coding"), `archived` ("true"|"false"|""), `q` (search string), `page` (default 1), `limit` (default 20, max 100) -> returns:
+     `{ items: [{ _id, statement, topicID: { _id, name }, subtopicIDs: [{ _id, name }], difficulty, type, modelAnswer, testCases: [{ input, expectedOutput, isHidden }], isArchived, createdAt }], total, page, pages }`.
+   - `GET /api/admin/questions/:id` -> returns full single question object INCLUDING hidden `testCases` and `modelAnswer` for editing.
+   - `POST /api/admin/questions` -> body: `{ statement, topicID, subtopicIDs, difficulty, type, modelAnswer, testCases }` -> returns `201` created question.
+     - **Strict Validation:** `subtopicIDs` must contain **1 to 3** subtopics belonging to the selected `topicID`. If `type === "Theory"`, `modelAnswer` is required. If `type === "Coding"`, at least 1 test case with non-empty `expectedOutput` is required (`{ input, expectedOutput, isHidden }`).
+   - `PUT /api/admin/questions/:id` -> same body as POST -> returns updated question.
+     - **Handle `409` Integrity Guard:** If `subtopicIDs` were modified on a question that already has student attempts, surface the backend's `409` message clearly in an inline alert banner inside the modal (`"This question already has attempts, so its subtopic tags cannot change. Archive it and create a new question instead."`).
+   - `DELETE /api/admin/questions/:id` -> returns either `{ deleted: true }` OR `{ archived: true, message: "Question is in use, so it was archived instead of deleted" }`. Show a distinct toast explaining whether the question was permanently deleted or archived!
+   - `POST /api/admin/questions/:id/restore` -> unarchives a question (`isArchived: false`) and returns the restored question.
+
+4. **User Accounts (UC-17):**
+   - `GET /api/admin/users` -> returns `[{ _id, name, email, role: "Student"|"Admin", isActive: boolean, profileImageUrl, createdAt }]` (never expects password fields).
+   - `PUT /api/admin/users/:id/role` -> body: `{ role: "Student"|"Admin" }` -> returns updated user.
+   - `PUT /api/admin/users/:id/active` -> body: `{ isActive: true|false }` -> returns updated user.
+   - `DELETE /api/admin/users/:id` -> returns `{ deleted: true }`. Handle `409` (`"This user has attempts. Disable the account instead of deleting it."`).
+   - **Self-Protection UX:** Identify the currently logged-in admin (`row._id === currentUser._id`) with a `"You"` badge and disable the role change, deactivate, and delete buttons on their own row (matching the backend's `400` self-protection guard).
+
+5. **Anonymized Analytics Export (DFD Process 7.0):**
+   - `GET /api/admin/export` -> returns:
+     `{ exportedAt, summary: { uniqueUsers, totalAttempts, totalSubtopicStatRecords }, subtopicStats: [{ anonymousUserId, topic, subtopic, solved, attempted, skipped, lastPracticed }], attempts: [{ anonymousUserId, questionId, topic, subtopics, difficulty, type, status, timeTakenSeconds, createdAt }] }`.
+
+# REQUIRED ADMIN LAYOUT & SCREENS
+1. **Admin Workspace Shell (`AdminLayout.jsx`):**
+   - Crisp left sidebar (collapsible on mobile) + sticky top bar with breadcrumb and **"Back to Student App"** switcher.
+   - Sidebar navigation: **Overview** (`/admin`), **Question Bank** (`/admin/questions`), **Subtopic Taxonomy** (`/admin/subtopics`), **User Management** (`/admin/users`), **Anonymized Export** (`/admin/export`).
+   - Global toast notification system for operation confirmations (`201`/`200`) and backend validation/conflict errors (`400`/`403`/`409`).
+
+2. **Overview (`/admin`):**
+   - Derive KPI cards purely from existing endpoints (`GET /api/admin/questions?limit=1&archived=false`, `archived=true`, `GET /api/admin/subtopics`, `GET /api/admin/users`, and `GET /api/admin/export` summary):
+     - Active Questions, Archived Questions, Total Subtopics across 4 Topics, Registered Users (Active vs. Disabled), and Total Recorded Attempts.
+   - Quick-action cards: **"+ New Question"**, **"+ New Subtopic"**, **"Download Anonymized Export"**.
+   - Topic distribution summary showing question/subtopic counts per core topic (DSA, OOP, DBMS, OS).
+
+3. **Question Bank Manager (`/admin/questions`):**
+   - Filter bar: search (`q`), cascading Topic -> Subtopic dropdowns, Difficulty, Type (`Theory`/`Coding`), and Archive Status segmented control (`Active` / `Archived` / `All`) + **"+ Add Question"** primary button.
+   - High-density paginated table (`page` / `pages` / `total`) showing statement preview, Topic, Subtopic tag pills (1–3), Difficulty badge, Type badge, Status pill (`Active` vs. `Archived`), and row actions (**Edit**, **Archive/Delete**, or **Restore** if archived).
+   - **Add / Edit Question Drawer or Modal (`QuestionFormModal.jsx`):**
+     - Fetches `GET /api/admin/questions/:id` when editing so hidden test cases and `modelAnswer` populate accurately.
+     - Statement textarea, Topic selector, interactive **1–3 Subtopic multi-select chip picker** (filtered strictly to the selected `topicID`, with live counter `X/3 selected` and validation preventing 0 or >3 tags).
+     - Difficulty selector (`Easy`, `Medium`, `Hard`) and Type segmented toggle (`Theory` vs. `Coding`).
+     - **Dynamic conditional section:**
+       - When `Theory`: structured `modelAnswer` textarea (required).
+       - When `Coding`: dynamic **Test Case Builder** where admins can add/remove rows, edit `input` (monospace textarea), `expectedOutput` (required monospace textarea), and toggle `isHidden` (Visible vs. Hidden badge).
+
+4. **Subtopic Taxonomy Manager (`/admin/subtopics`):**
+   - Grouped by the 4 Topics (DSA, OOP, DBMS, OS) with a Topic filter tab bar and inline **"+ Add Subtopic"** form (`topicID` + `name`).
+   - Each subtopic card/row supports inline rename (`PUT /api/admin/subtopics/:id`) and delete (`DELETE /api/admin/subtopics/:id`) with confirmation modal and clear `409` feedback if questions still reference it.
+
+5. **User Account Manager (`/admin/users`):**
+   - Searchable/filterable table (filter by Role: All/Student/Admin, Status: All/Active/Disabled) showing user avatar/initials, Name, Email, Role badge, Account Status pill (`Active` emerald / `Disabled` rose), Created Date, and Actions.
+   - Actions per row (disabled for current logged-in admin):
+     - **Role Switcher** (`Student` <-> `Admin`) with confirmation modal.
+     - **Active Status Toggle** (`Disable Account` / `Re-activate Account`) with clear notice that disabling immediately revokes active sessions.
+     - **Delete User** button with confirmation modal; if backend returns `409` (user has attempts), display a helpful modal/toast offering a 1-click **"Disable Account Instead"** fallback.
+
+6. **Anonymized Data Export (`/admin/export`):**
+   - Clear privacy notice confirming all PII (names, emails, raw MongoDB user IDs) is stripped and replaced with ephemeral pseudonyms (`USER_1`, `USER_2`, ...).
+   - **"Load Live Snapshot"** / refresh button calling `GET /api/admin/export`, rendering summary KPI cards (`uniqueUsers`, `totalAttempts`, `totalSubtopicStatRecords`), a preview table of the anonymized `subtopicStats` and `attempts` tabs, and two client-side download buttons: **Download JSON** and **Download CSV**.
