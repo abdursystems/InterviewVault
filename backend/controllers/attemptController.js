@@ -5,16 +5,24 @@ const UserSubtopicStats = require("../models/UserSubtopicStats");
 const RecoveryPlan = require("../models/RecoveryPlan");
 const { runPythonCode } = require("../utils/sandbox");
 
+const sendServerError = (res, message, error) => {
+  const payload = { error: message };
+  if (process.env.NODE_ENV !== "production") {
+    payload.details = error.message;
+  }
+  return res.status(500).json(payload);
+};
+
 const submitAttempt = async (req, res) => {
   try {
-    // 1. Prefer verified JWT user (SEC-3), fallback to body only if route is unprotected
-    const userID = req.user?._id || req.body.userID;
+    // SEC-3: Always derive user identity from the verified JWT attached by protect
+    const userID = req.user?._id || req.user?.id;
     const {
       questionID,
       submittedCodeOrText,
       timeTakenSeconds,
       status: clientStatus,
-    } = req.body;
+    } = req.body || {};
 
     if (!userID) {
       return res
@@ -27,13 +35,16 @@ const submitAttempt = async (req, res) => {
     }
 
     const question = await Question.findById(questionID);
-    if (!question || question.isArchived) {
+    if (!question || question.isArchived === true) {
       return res.status(404).json({ error: "Question not found" });
     }
 
-    // FR-3 / FR-4 Exception: Reject empty submissions unless Skipped
+    // FR-3 / FR-4 Exception: Reject empty or non-string submissions unless Skipped
     const isSkipped = clientStatus === "Skipped";
-    if (!isSkipped && (!submittedCodeOrText || !submittedCodeOrText.trim())) {
+    if (
+      !isSkipped &&
+      (typeof submittedCodeOrText !== "string" || !submittedCodeOrText.trim())
+    ) {
       return res.status(400).json({
         error: "Submission cannot be empty unless the question is skipped.",
       });
@@ -83,7 +94,10 @@ const submitAttempt = async (req, res) => {
             userID,
             questionID,
             status: finalStatus,
-            submittedCodeOrText,
+            submittedCodeOrText:
+              typeof submittedCodeOrText === "string"
+                ? submittedCodeOrText
+                : "",
             timeTakenSeconds,
           },
         ],
@@ -135,18 +149,12 @@ const submitAttempt = async (req, res) => {
       });
     } catch (error) {
       await session.abortTransaction();
-      return res.status(500).json({
-        error: "Transaction failed",
-        details: error.message,
-      });
+      return sendServerError(res, "Transaction failed", error);
     } finally {
       session.endSession();
     }
   } catch (error) {
-    return res.status(500).json({
-      error: "Failed to process attempt",
-      details: error.message,
-    });
+    return sendServerError(res, "Failed to process attempt", error);
   }
 };
 
@@ -155,7 +163,7 @@ const submitAttempt = async (req, res) => {
 // @access  Private (JWT)
 const getDashboardStats = async (req, res) => {
   try {
-    const userID = req.user?._id || req.query.userID;
+    const userID = req.user?._id || req.user?.id;
     if (!userID) {
       return res
         .status(401)
@@ -207,10 +215,7 @@ const getDashboardStats = async (req, res) => {
 
     return res.status(200).json({ topicStats, subtopicStats });
   } catch (error) {
-    return res.status(500).json({
-      error: "Failed to load dashboard stats",
-      details: error.message,
-    });
+    return sendServerError(res, "Failed to load dashboard stats", error);
   }
 };
 
@@ -219,7 +224,7 @@ const getDashboardStats = async (req, res) => {
 // @access  Private (JWT)
 const getAttemptHistory = async (req, res) => {
   try {
-    const userID = req.user?._id || req.query.userID;
+    const userID = req.user?._id || req.user?.id;
     if (!userID) {
       return res
         .status(401)
@@ -229,7 +234,7 @@ const getAttemptHistory = async (req, res) => {
     const attempts = await Attempt.find({ userID })
       .populate({
         path: "questionID",
-        select: "statement difficulty type topicID subtopicIDs",
+        select: "statement difficulty type topicID subtopicIDs isArchived",
         populate: [
           { path: "topicID", select: "name" },
           { path: "subtopicIDs", select: "name" },
@@ -240,10 +245,7 @@ const getAttemptHistory = async (req, res) => {
 
     return res.status(200).json(attempts);
   } catch (error) {
-    return res.status(500).json({
-      error: "Failed to load attempt history",
-      details: error.message,
-    });
+    return sendServerError(res, "Failed to load attempt history", error);
   }
 };
 

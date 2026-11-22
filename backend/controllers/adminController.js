@@ -30,10 +30,11 @@ const wrap = (fn) => async (req, res) => {
     if (error.code === 11000) {
       return res.status(409).json({ message: "This record already exists" });
     }
-    res.status(500).json({
-      message: "Server Error Occured",
-      error: error.message,
-    });
+    const payload = { message: "Server Error Occurred" };
+    if (process.env.NODE_ENV !== "production") {
+      payload.error = error.message;
+    }
+    res.status(500).json(payload);
   }
 };
 
@@ -168,19 +169,20 @@ const validateQuestion = async (body) => {
     };
   }
 
+  const modelAnswer = String(body.modelAnswer || "").trim();
   const data = {
     statement,
     topicID,
     subtopicIDs,
     difficulty,
     type,
+    // Always set explicitly so switching Theory -> Coding clears stale modelAnswer
+    modelAnswer: modelAnswer || undefined,
     testCases: [],
   };
-  const modelAnswer = String(body.modelAnswer || "").trim();
 
   if (type === "Theory") {
     if (!modelAnswer) return { error: "Theory questions need a model answer" };
-    data.modelAnswer = modelAnswer;
   } else {
     if (!Array.isArray(body.testCases) || body.testCases.length === 0) {
       return { error: "Coding questions need at least one test case" };
@@ -199,7 +201,6 @@ const validateQuestion = async (body) => {
       });
     }
     data.testCases = testCases;
-    if (modelAnswer) data.modelAnswer = modelAnswer;
   }
 
   return { data };
@@ -216,10 +217,10 @@ const listQuestions = async (req, res) => {
   if (TYPES.includes(type)) filter.type = type;
   if (q) filter.statement = new RegExp(escapeRegex(String(q)), "i");
   if (archived === "true") filter.isArchived = true;
-  if (archived === "false") filter.isArchived = false;
+  if (archived === "false") filter.isArchived = { $ne: true };
 
-  const page = Math.max(parseInt(req.query.page) || 1, 1);
-  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
 
   const [items, total] = await Promise.all([
     Question.find(filter)

@@ -2,18 +2,16 @@ const { generateDailyPlan } = require("../services/plannerService");
 
 /**
  * GET /api/recovery-plan
- * Generates (or retrieves) today's 5-question recovery plan for the user.
+ * Generates (or retrieves) today's 5-question recovery plan for the authenticated user.
  */
 const getRecoveryPlan = async (req, res) => {
   try {
-    // Support both JWT middleware (req.user) and query param (?userID=...) for easy Postman testing
-    const userId =
-      req.user?._id || req.user?.id || req.query.userID || req.body.userID;
+    // SEC-3: Always derive user identity from the verified JWT attached by protect
+    const userId = req.user?._id || req.user?.id;
 
     if (!userId) {
-      return res.status(400).json({
-        error:
-          "userID is required (pass ?userID=<id> in the URL or authenticate with a Bearer token).",
+      return res.status(401).json({
+        error: "Not authorized. A valid Bearer token is required.",
       });
     }
 
@@ -32,10 +30,11 @@ const getRecoveryPlan = async (req, res) => {
     });
   } catch (error) {
     console.error("Error generating recovery plan:", error);
-    return res.status(500).json({
-      error: "Failed to generate recovery plan",
-      details: error.message,
-    });
+    const payload = { error: "Failed to generate recovery plan" };
+    if (process.env.NODE_ENV !== "production") {
+      payload.details = error.message;
+    }
+    return res.status(500).json(payload);
   }
 };
 

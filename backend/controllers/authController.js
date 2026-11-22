@@ -2,10 +2,18 @@ const User = require("../models/User.js");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-// FR-1: Track failed logins per email (5 failed attempts in 10 minutes -> temporary block)
+// FR-1 / SEC-5: Track failed logins per email (5 failed attempts in 10 minutes -> temporary block)
 const failedLoginAttempts = new Map();
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+
+const sendServerError = (res, error) => {
+  const payload = { message: "Server Error Occurred" };
+  if (process.env.NODE_ENV !== "production") {
+    payload.error = error.message;
+  }
+  return res.status(500).json(payload);
+};
 
 // Generate JWT token using .env expiry (defaults to 60m)
 const generateToken = (userId) => {
@@ -19,9 +27,22 @@ const generateToken = (userId) => {
 // @access  Public
 const registerUser = async (req, res) => {
   try {
-    const { name, email, password, profileImageUrl } = req.body;
+    const { name, email, password, profileImageUrl } = req.body || {};
 
-    if (!name || !email || !password) {
+    if (
+      typeof name !== "string" ||
+      typeof email !== "string" ||
+      typeof password !== "string"
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Name, email, and password must be valid strings" });
+    }
+
+    const trimmedName = name.trim();
+    const normalizedEmail = email.toLowerCase().trim();
+
+    if (!trimmedName || !normalizedEmail || !password) {
       return res
         .status(400)
         .json({ message: "Name, email, and password are required" });
@@ -34,7 +55,6 @@ const registerUser = async (req, res) => {
       });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
     const userExists = await User.findOne({ email: normalizedEmail });
     if (userExists) {
       return res.status(400).json({ message: "User Already Exists" });
@@ -43,11 +63,16 @@ const registerUser = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
+    const safeProfileImageUrl =
+      typeof profileImageUrl === "string" && profileImageUrl.trim()
+        ? profileImageUrl.trim()
+        : null;
+
     const user = await User.create({
-      name: name.trim(),
+      name: trimmedName,
       email: normalizedEmail,
       password: hashedPassword,
-      profileImageUrl,
+      profileImageUrl: safeProfileImageUrl,
     });
 
     res.status(201).json({
@@ -59,10 +84,7 @@ const registerUser = async (req, res) => {
       token: generateToken(user._id),
     });
   } catch (error) {
-    res.status(500).json({
-      message: "Server Error Occured",
-      error: error.message,
-    });
+    return sendServerError(res, error);
   }
 };
 
@@ -71,14 +93,21 @@ const registerUser = async (req, res) => {
 // @access  Public
 const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
+    const { email, password } = req.body || {};
+
+    if (typeof email !== "string" || typeof password !== "string") {
+      return res
+        .status(400)
+        .json({ message: "Email and password must be valid strings" });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    if (!normalizedEmail || !password) {
       return res
         .status(400)
         .json({ message: "Email and password are required" });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
     const now = Date.now();
     const record = failedLoginAttempts.get(normalizedEmail);
 
@@ -139,10 +168,7 @@ const loginUser = async (req, res) => {
       token: generateToken(user._id),
     });
   } catch (error) {
-    res.status(500).json({
-      message: "Server Error Occured",
-      error: error.message,
-    });
+    return sendServerError(res, error);
   }
 };
 
@@ -157,10 +183,7 @@ const getUserProfile = async (req, res) => {
     }
     res.json(user);
   } catch (error) {
-    res.status(500).json({
-      message: "Server Error Occured",
-      error: error.message,
-    });
+    return sendServerError(res, error);
   }
 };
 

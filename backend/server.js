@@ -18,10 +18,21 @@ const app = express();
 // 1. Establish Database Connection
 connectDB();
 
-// 2. Global Middleware
+// 2. Global Middleware (SRS §3.1.4: restrict CORS to the front-end origin)
+const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin: "*",
+    origin: (origin, callback) => {
+      // Allow same-origin / server-to-server / Postman requests (no Origin header)
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }),

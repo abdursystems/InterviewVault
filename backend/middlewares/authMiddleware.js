@@ -30,10 +30,11 @@ const protect = async (req, res, next) => {
     req.user = user;
     next();
   } catch (error) {
-    return res.status(401).json({
-      message: "Token Failed or Expired",
-      error: error.message,
-    });
+    const payload = { message: "Token Failed or Expired" };
+    if (process.env.NODE_ENV !== "production") {
+      payload.error = error.message;
+    }
+    return res.status(401).json(payload);
   }
 };
 

@@ -6,6 +6,10 @@ const Topic = require("../models/Topic");
 const UserSubtopicStats = require("../models/UserSubtopicStats");
 const RecoveryPlan = require("../models/RecoveryPlan");
 
+const ACTIVE_QUESTION = { isArchived: { $ne: true } };
+const PLAN_QUESTION_FIELDS =
+  "statement difficulty type topicID subtopicIDs isArchived";
+
 /**
  * Helper: Get all question IDs whose CURRENT (latest) status for the user is "Solved".
  * FR-8 Post-condition: A solved question is not repeated except in the Review slot.
@@ -131,10 +135,7 @@ async function generateDailyPlan(userId) {
     date: today,
   })
     .populate("diagnosedSubtopicID", "name")
-    .populate(
-      "items.questionID",
-      "statement difficulty type topicID subtopicIDs",
-    );
+    .populate("items.questionID", PLAN_QUESTION_FIELDS);
   if (existingPlan) {
     return existingPlan;
   }
@@ -158,9 +159,9 @@ async function generateDailyPlan(userId) {
 
     for (const topic of topics) {
       const q = await Question.findOne({
+        ...ACTIVE_QUESTION,
         topicID: topic._id,
         difficulty: "Easy",
-        isArchived: false,
         _id: { $nin: getExclusionList(false) },
       });
       if (q) {
@@ -181,7 +182,7 @@ async function generateDailyPlan(userId) {
 
     // 5th slot: 1 additional foundational question from any topic
     const extraQ = await Question.findOne({
-      isArchived: false,
+      ...ACTIVE_QUESTION,
       _id: { $nin: getExclusionList(false) },
     }).sort({ difficulty: 1 });
 
@@ -230,9 +231,9 @@ async function generateDailyPlan(userId) {
 
     // --- SLOT 1: FOCUS 1 (Easy from Root Cause / Least Practiced) ---
     let focus1 = await Question.findOne({
+      ...ACTIVE_QUESTION,
       subtopicIDs: targetSubtopicId,
       difficulty: "Easy",
-      isArchived: false,
       _id: { $nin: getExclusionList(false) },
     });
     let focus1Reason =
@@ -242,8 +243,8 @@ async function generateDailyPlan(userId) {
 
     if (!focus1) {
       focus1 = await Question.findOne({
+        ...ACTIVE_QUESTION,
         subtopicIDs: targetSubtopicId,
-        isArchived: false,
         _id: { $nin: getExclusionList(false) },
       });
       if (focus1) {
@@ -262,9 +263,9 @@ async function generateDailyPlan(userId) {
 
     // --- SLOT 2: FOCUS 2 (Medium from Root Cause / Least Practiced) ---
     let focus2 = await Question.findOne({
+      ...ACTIVE_QUESTION,
       subtopicIDs: targetSubtopicId,
       difficulty: "Medium",
-      isArchived: false,
       _id: { $nin: getExclusionList(false) },
     });
     let focus2Reason =
@@ -274,8 +275,8 @@ async function generateDailyPlan(userId) {
 
     if (!focus2) {
       focus2 = await Question.findOne({
+        ...ACTIVE_QUESTION,
         subtopicIDs: targetSubtopicId,
-        isArchived: false,
         _id: { $nin: getExclusionList(false) },
       });
       if (focus2) {
@@ -298,19 +299,19 @@ async function generateDailyPlan(userId) {
 
     if (mode === "RootCause" && missedQuestionIds.length > 0) {
       retryQ = await Question.findOne({
+        ...ACTIVE_QUESTION,
         _id: { $in: missedQuestionIds, $nin: getExclusionList(false) },
-        isArchived: false,
       });
       if (retryQ) {
         retryReason = `Retry question: You previously attempted or skipped this ${targetSubtopicName} problem without solving it.`;
       }
     }
 
-    // Fallback for Retry if in GeneralPractice or all missed questions were already picked
+    // Fallback for Retry if in GeneralPractice or all missed questions were archived/picked
     if (!retryQ) {
       retryQ = await Question.findOne({
+        ...ACTIVE_QUESTION,
         subtopicIDs: targetSubtopicId,
-        isArchived: false,
         _id: { $nin: getExclusionList(false) },
       });
       retryReason =
@@ -344,10 +345,10 @@ async function generateDailyPlan(userId) {
     let reviewReason = "";
 
     if (strongStat && strongStat.subtopicID) {
-      // Note: FR-8 Post-condition allows repeating a Solved question in the Review slot!
+      // FR-8 Post-condition allows repeating a Solved question in the Review slot
       reviewQ = await Question.findOne({
+        ...ACTIVE_QUESTION,
         subtopicIDs: strongStat.subtopicID._id,
-        isArchived: false,
         _id: { $nin: getExclusionList(true) },
       });
       if (reviewQ) {
@@ -355,10 +356,10 @@ async function generateDailyPlan(userId) {
       }
     }
 
-    // FR-8 Exception Fallback: If no eligible strong subtopic exists, fill in order Focus -> Retry -> Review -> Stretch
+    // FR-8 Exception Fallback
     if (!reviewQ) {
       reviewQ = await Question.findOne({
-        isArchived: false,
+        ...ACTIVE_QUESTION,
         _id: { $nin: getExclusionList(false) },
       });
       reviewReason =
@@ -376,8 +377,8 @@ async function generateDailyPlan(userId) {
 
     // --- SLOT 5: STRETCH (Hard question from a subtopic that is NOT the root cause) ---
     const stretchFilter = {
+      ...ACTIVE_QUESTION,
       difficulty: "Hard",
-      isArchived: false,
       _id: { $nin: getExclusionList(false) },
     };
     if (rootCauseSubtopicId) {
@@ -395,9 +396,8 @@ async function generateDailyPlan(userId) {
         stretchQ.subtopicIDs?.[0]?.name || "another subtopic";
       stretchReason = `Stretch challenge: Hard difficulty question in ${stretchSubName} (outside your root-cause subtopic) to push your interview readiness.`;
     } else {
-      // Fallback if no Hard non-root-cause question is available
       stretchQ = await Question.findOne({
-        isArchived: false,
+        ...ACTIVE_QUESTION,
         _id: { $nin: getExclusionList(false) },
       });
       stretchReason =
@@ -426,10 +426,7 @@ async function generateDailyPlan(userId) {
 
   return await RecoveryPlan.findById(savedPlan._id)
     .populate("diagnosedSubtopicID", "name")
-    .populate(
-      "items.questionID",
-      "statement difficulty type topicID subtopicIDs",
-    );
+    .populate("items.questionID", PLAN_QUESTION_FIELDS);
 }
 
 module.exports = {

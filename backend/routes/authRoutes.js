@@ -14,7 +14,8 @@ router.post("/register", registerUser); // register user
 router.post("/login", loginUser); // login user
 router.get("/profile", protect, getUserProfile); // get user profile
 
-router.post("/upload-image", upload.single("image"), (req, res) => {
+// Authenticated profile image upload
+router.post("/upload-image", protect, upload.single("image"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({
       message: "No File Uploaded",

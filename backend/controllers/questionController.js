@@ -1,6 +1,21 @@
+const mongoose = require("mongoose");
 const Question = require("../models/Question");
 const Topic = require("../models/Topic");
 const Subtopic = require("../models/Subtopic");
+
+const DIFFICULTIES = ["Easy", "Medium", "Hard"];
+const TYPES = ["Theory", "Coding"];
+
+const isId = (id) => mongoose.isValidObjectId(id);
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const sendServerError = (res, message, error) => {
+  const payload = { message };
+  if (process.env.NODE_ENV !== "production") {
+    payload.error = error.message;
+  }
+  return res.status(500).json(payload);
+};
 
 // @desc    Get all questions with optional filters (Topic, Subtopic, Difficulty, Type, Keyword)
 // @route   GET /api/questions
@@ -8,27 +23,46 @@ const Subtopic = require("../models/Subtopic");
 const getQuestions = async (req, res) => {
   try {
     const { topicID, subtopicID, difficulty, type, search } = req.query;
-    const filter = { isArchived: false };
+    const filter = { isArchived: { $ne: true } };
 
-    if (topicID) filter.topicID = topicID;
-    if (subtopicID) filter.subtopicIDs = subtopicID;
-    if (difficulty) filter.difficulty = difficulty;
-    if (type) filter.type = type;
-    if (search) {
-      filter.statement = { $regex: search, $options: "i" };
+    if (topicID) {
+      if (!isId(topicID)) {
+        return res.status(400).json({ message: "Invalid topicID" });
+      }
+      filter.topicID = topicID;
+    }
+
+    if (subtopicID) {
+      if (!isId(subtopicID)) {
+        return res.status(400).json({ message: "Invalid subtopicID" });
+      }
+      filter.subtopicIDs = subtopicID;
+    }
+
+    if (difficulty && DIFFICULTIES.includes(difficulty)) {
+      filter.difficulty = difficulty;
+    }
+
+    if (type && TYPES.includes(type)) {
+      filter.type = type;
+    }
+
+    if (typeof search === "string" && search.trim()) {
+      filter.statement = {
+        $regex: escapeRegex(search.trim()),
+        $options: "i",
+      };
     }
 
     const questions = await Question.find(filter)
-      .select("-testCases.isHidden")
+      .select("-testCases -modelAnswer")
       .populate("topicID", "name")
       .populate("subtopicIDs", "name")
       .sort({ createdAt: -1 });
 
     res.status(200).json(questions);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Failed to fetch questions", error: error.message });
+    return sendServerError(res, "Failed to fetch questions", error);
   }
 };
 
@@ -37,19 +71,34 @@ const getQuestions = async (req, res) => {
 // @access  Private (FR-3)
 const getQuestionById = async (req, res) => {
   try {
-    const question = await Question.findById(req.params.id)
-      .populate("topicID", "name")
-      .populate("subtopicIDs", "name");
+    const { id } = req.params;
+    if (!isId(id)) {
+      return res.status(400).json({ message: "Invalid question ID" });
+    }
 
-    if (!question || question.isArchived) {
+    const question = await Question.findById(id)
+      .populate("topicID", "name")
+      .populate("subtopicIDs", "name")
+      .lean();
+
+    if (!question || question.isArchived === true) {
       return res.status(404).json({ message: "Question not found" });
     }
 
-    res.status(200).json(question);
+    // Never expose hidden test-case inputs/outputs to students
+    const allTestCases = Array.isArray(question.testCases)
+      ? question.testCases
+      : [];
+    const visibleTestCases = allTestCases.filter((tc) => !tc.isHidden);
+    const hiddenTestCount = allTestCases.length - visibleTestCases.length;
+
+    res.status(200).json({
+      ...question,
+      testCases: visibleTestCases,
+      hiddenTestCount,
+    });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Failed to fetch question", error: error.message });
+    return sendServerError(res, "Failed to fetch question", error);
   }
 };
 
@@ -64,9 +113,7 @@ const getTaxonomy = async (req, res) => {
       .sort({ name: 1 });
     res.status(200).json({ topics, subtopics });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Failed to fetch taxonomy", error: error.message });
+    return sendServerError(res, "Failed to fetch taxonomy", error);
   }
 };
 
