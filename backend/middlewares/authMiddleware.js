@@ -20,6 +20,13 @@ const protect = async (req, res, next) => {
         .json({ message: "Not Authorized, User Not Found" });
     }
 
+    // FR-11: a disabled account is locked out immediately, even with a valid token
+    if (user.isActive === false) {
+      return res
+        .status(403)
+        .json({ message: "Account Disabled. Contact an administrator." });
+    }
+
     req.user = user;
     next();
   } catch (error) {
