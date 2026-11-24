@@ -159,7 +159,7 @@ export default function AdminLayout() {
             }`}
           >
             <Link
-              to="/admin"
+              to="/"
               className="flex items-center gap-2.5 min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 rounded"
             >
               <svg
@@ -246,10 +246,14 @@ export default function AdminLayout() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="h-14 px-4 border-b border-zinc-200 dark:border-[#27272A] flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <Link
+                  to="/"
+                  onClick={() => setMobileDrawerOpen(false)}
+                  className="flex items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+                >
                   <Shield className="w-4 h-4 text-zinc-900 dark:text-zinc-100" />
                   <span className="text-sm font-semibold">Admin Console</span>
-                </div>
+                </Link>
                 <button
                   type="button"
                   onClick={() => setMobileDrawerOpen(false)}

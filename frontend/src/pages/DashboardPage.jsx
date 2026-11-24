@@ -314,7 +314,7 @@ export default function DashboardPage() {
                 id="subtopic-weakness-heading"
                 className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
               >
-                Subtopic Weakness Index
+                Subtopic List
               </h2>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                 Ordered from lowest accuracy to highest so bottlenecks surface immediately

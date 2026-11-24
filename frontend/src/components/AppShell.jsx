@@ -73,7 +73,7 @@ export default function AppShell({ children, fullWidth = false }) {
         <div className="h-full max-w-[1440px] mx-auto px-4 sm:px-6 flex items-center justify-between gap-6">
           {/* Zone 1: Brand Wordmark */}
           <Link
-            to="/dashboard"
+            to="/"
             className="flex items-center gap-2.5 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 rounded"
           >
             <svg

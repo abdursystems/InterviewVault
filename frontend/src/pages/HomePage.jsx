@@ -11,9 +11,11 @@ import {
   Check,
   Target,
   SlidersHorizontal,
+  LogOut,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import ConfirmModal from '../components/ConfirmModal';
 
 const HERO_IMAGE_SRC = '/assets/aistudio/hero_img1_7c515ca5.jpg';
 
@@ -52,13 +54,19 @@ const FREE_FOREVER_ITEMS = [
 ];
 
 export default function HomePage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
 
   const primaryCtaPath = isAuthenticated ? '/dashboard' : '/login';
   const primaryCtaLabel = isAuthenticated ? 'Open Dashboard' : 'Start Practicing Free';
+
+  const handleConfirmLogout = () => {
+    setLogoutModalOpen(false);
+    logout();
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAFAFA] text-zinc-900 dark:bg-[#09090B] dark:text-zinc-100">
@@ -142,6 +150,17 @@ export default function HomePage() {
               <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
             </Link>
 
+            {isAuthenticated && (
+              <button
+                type="button"
+                onClick={() => setLogoutModalOpen(true)}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-[#27272A] hover:bg-zinc-100 dark:hover:bg-[#18181B] hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0"
+              >
+                <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Sign out</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setMobileNavOpen((prev) => !prev)}
@@ -171,7 +190,7 @@ export default function HomePage() {
                 {item.label}
               </a>
             ))}
-            <div className="pt-2 border-t border-zinc-200 dark:border-[#27272A]">
+            <div className="pt-2 border-t border-zinc-200 dark:border-[#27272A] space-y-2">
               <Link
                 to={primaryCtaPath}
                 onClick={() => setMobileNavOpen(false)}
@@ -180,6 +199,19 @@ export default function HomePage() {
                 <span>{primaryCtaLabel}</span>
                 <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </Link>
+              {isAuthenticated && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileNavOpen(false);
+                    setLogoutModalOpen(true);
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-xs font-medium text-rose-600 dark:text-rose-400 border border-zinc-200 dark:border-[#27272A] hover:bg-rose-500/10 transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Sign out</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -507,6 +539,17 @@ export default function HomePage() {
           </div>
         </div>
       </footer>
+
+      <ConfirmModal
+        isOpen={logoutModalOpen}
+        title="Sign out of InterviewVault?"
+        description="Your current session token will be cleared from this browser. Unsubmitted question drafts stored locally will remain available."
+        confirmLabel="Sign out"
+        cancelLabel="Stay signed in"
+        variant="danger"
+        onConfirm={handleConfirmLogout}
+        onCancel={() => setLogoutModalOpen(false)}
+      />
     </div>
   );
 }

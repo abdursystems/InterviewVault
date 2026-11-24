@@ -327,7 +327,7 @@ export default function QuestionWorkspacePage() {
     }
   };
 
-  // Coding Run Tests & Submit both invoke POST /api/attempts with status: "Attempted"
+  // Coding Run & Submit both invoke POST /api/attempts with status: "Attempted"
   const executeCodingAttempt = async (action = 'submit') => {
     setValidationError('');
     setSaveError('');
@@ -682,7 +682,7 @@ export default function QuestionWorkspacePage() {
                         </div>
                       ) : !executionSummary ? (
                         <div className="h-full flex items-center justify-center text-zinc-500 dark:text-zinc-400">
-                          Click &ldquo;Run Tests&rdquo; or &ldquo;Submit&rdquo; to run your Python
+                          Click &ldquo;Run&rdquo; or &ldquo;Submit&rdquo; to run your Python
                           solution.
                         </div>
                       ) : executionSummary.hasError ? (
@@ -900,7 +900,7 @@ export default function QuestionWorkspacePage() {
                             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-xs font-medium border border-zinc-300 dark:border-[#27272A] text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-[#18181B] transition-colors whitespace-nowrap disabled:opacity-50"
                           >
                             <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                            <span>{activeAction === 'run' ? 'Running...' : 'Run Tests'}</span>
+                            <span>{activeAction === 'run' ? 'Running...' : 'Run'}</span>
                           </button>
                           <button
                             type="button"
