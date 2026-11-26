@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Clock,
@@ -30,6 +30,11 @@ import {
 } from '../utils/diagnostics';
 
 // Drafts are scoped to the logged-in user so that two accounts on the same browser never share code.
+// Page to return to after submitting: the page the student opened the question from.
+// Falls back to the Problems page when the question was opened by a direct link.
+const getReturnPath = (from) =>
+  typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') ? from : '/questions';
+
 const draftKey = (userId, questionId) => `iv_draft_${userId}_${questionId}`;
 // Old, unscoped draft key used by earlier builds; it can hold another user's code, so it is removed.
 const legacyDraftKey = (questionId) => `iv_draft_${questionId}`;
@@ -166,6 +171,8 @@ export default function QuestionWorkspacePage() {
   const { theme } = useTheme();
   const { user } = useAuth();
   const userId = user?._id;
+  const location = useLocation();
+  const returnTo = getReturnPath(location.state?.from);
 
   const [question, setQuestion] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -368,15 +375,15 @@ export default function QuestionWorkspacePage() {
               timeTakenSeconds: elapsedSeconds,
               status: 'Attempted',
             });
+      if (action === 'submit') {
+        // Submitted: return straight to the page the student came from. The Recovery Plan page
+        // shows the mode-transition prompt when the plan is complete.
+        if (userId) localStorage.removeItem(draftKey(userId, question._id));
+        navigate(returnTo);
+        return;
+      }
       setExecutionResult(res);
       setConsoleTab('output');
-      if (action === 'submit') {
-        setIsSubmitted(true);
-        if (userId) localStorage.removeItem(draftKey(userId, question._id));
-        if (res?.status === 'Solved') {
-          await checkForModeCompletion();
-        }
-      }
     } catch (err) {
       setSaveError(
         getApiErrorMessage(
@@ -423,13 +430,10 @@ export default function QuestionWorkspacePage() {
         status: chosenStatus,
       });
       const finalStatus = res.status || chosenStatus;
-      setTheorySavedStatus({
-        status: finalStatus,
-        message: res.message || 'Self-assessment saved.',
-      });
-      if (finalStatus === 'Solved') {
-        await checkForModeCompletion();
-      }
+      if (userId) localStorage.removeItem(draftKey(userId, question._id));
+      // Submitted: return straight to the page the student came from.
+      navigate(returnTo);
+      return;
     } catch (err) {
       setSaveError(
         getApiErrorMessage(
@@ -455,7 +459,7 @@ export default function QuestionWorkspacePage() {
         status: 'Skipped',
       });
       setSkipModalOpen(false);
-      navigate('/recovery-plan');
+      navigate(returnTo);
     } catch (err) {
       setSkipModalOpen(false);
       setSaveError(

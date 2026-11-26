@@ -219,6 +219,7 @@ export default function RecoveryPlanPage() {
                       <StatusBadge status={item.state} />
                       <Link
                         to={`/questions/${q._id}`}
+                        state={{ from: '/recovery-plan' }}
                         className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
                           item.state === 'Completed'
                             ? 'border border-zinc-200 dark:border-[#27272A] text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-[#18181B]'

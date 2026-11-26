@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Search, RotateCcw, AlertCircle, Code2, FileText, ArrowUpRight } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import { DifficultyBadge, StatusBadge } from '../components/Badge';
@@ -14,6 +14,7 @@ import {
 
 export default function QuestionsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
 
   const [taxonomy, setTaxonomy] = useState({ topics: [], subtopics: [] });
   const [allQuestions, setAllQuestions] = useState([]);
@@ -334,6 +335,7 @@ export default function QuestionsPage() {
                         <td className="py-3.5 px-5 max-w-md">
                           <Link
                             to={`/questions/${q._id}`}
+state={{ from: `${location.pathname}${location.search}` }}
                             className="font-medium text-zinc-900 dark:text-zinc-100 group-hover:underline underline-offset-4 decoration-zinc-400 dark:decoration-zinc-600 line-clamp-1"
                           >
                             {headline}
@@ -375,6 +377,7 @@ export default function QuestionsPage() {
                         <td className="py-3.5 px-5 text-right whitespace-nowrap">
                           <Link
                             to={`/questions/${q._id}`}
+state={{ from: `${location.pathname}${location.search}` }}
                             aria-label={`Open ${headline}`}
                             className="inline-flex items-center gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white transition-colors"
                           >
