@@ -478,6 +478,34 @@ export const attemptsAPI = {
     };
   },
 
+  // Run: evaluates the code against the test cases WITHOUT recording an attempt.
+  async runCode({ questionID, submittedCodeOrText }) {
+    const safeText =
+      typeof submittedCodeOrText === "string" ? submittedCodeOrText : "";
+
+    if (!USE_MOCK_DATA) {
+      const { data } = await apiClient.post("/attempts/run", {
+        questionID,
+        submittedCodeOrText: safeText,
+      });
+      return data;
+    }
+
+    await delay(240);
+    requireMockAuth("/attempts/run");
+    const question = getFullQuestionById(questionID);
+    if (!question) {
+      throw createMockAxiosError(404, "Question not found.", "/attempts/run");
+    }
+    const evaluation = evaluateMockPythonSubmission(question, safeText);
+    return {
+      message: evaluation.message,
+      status: evaluation.status,
+      testDetails: evaluation.testDetails,
+      stdout: evaluation.stdout || "",
+    };
+  },
+
   async getDashboard() {
     if (!USE_MOCK_DATA) {
       const { data } = await apiClient.get("/attempts/dashboard");

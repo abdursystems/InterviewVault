@@ -19,6 +19,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import ModeTransitionModal from '../components/ModeTransitionModal';
 import PythonEditor from '../components/PythonEditor';
 import { SkeletonBlock } from '../components/Skeleton';
+import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { attemptsAPI, questionsAPI, recoveryPlanAPI, getApiErrorMessage } from '../services/api';
 import {
@@ -28,7 +29,10 @@ import {
   summarizeExecutionResult,
 } from '../utils/diagnostics';
 
-const draftKey = (id) => `iv_draft_${id}`;
+// Drafts are scoped to the logged-in user so that two accounts on the same browser never share code.
+const draftKey = (userId, questionId) => `iv_draft_${userId}_${questionId}`;
+// Old, unscoped draft key used by earlier builds; it can hold another user's code, so it is removed.
+const legacyDraftKey = (questionId) => `iv_draft_${questionId}`;
 
 function FormattedStatement({ text }) {
   if (!text) return null;
@@ -160,6 +164,8 @@ export default function QuestionWorkspacePage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { theme } = useTheme();
+  const { user } = useAuth();
+  const userId = user?._id;
 
   const [question, setQuestion] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -167,6 +173,9 @@ export default function QuestionWorkspacePage() {
 
   // Draft & editor state
   const [content, setContent] = useState('');
+  // The draft key whose content is currently loaded in the editor. Autosave only runs for this key,
+  // so one user's code can never be written under another user's key during an account switch.
+  const [draftReadyKey, setDraftReadyKey] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [validationError, setValidationError] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -201,6 +210,8 @@ export default function QuestionWorkspacePage() {
 
     async function load() {
       setLoading(true);
+      setDraftReadyKey(null);
+      setContent('');
       setQuestion(null);
       setLoadError('');
       setExecutionResult(null);
@@ -225,7 +236,8 @@ export default function QuestionWorkspacePage() {
         setQuestion(data);
 
         // Restore auto-saved draft from localStorage or load starter template
-        const savedDraft = localStorage.getItem(draftKey(id));
+        localStorage.removeItem(legacyDraftKey(id));
+        const savedDraft = userId ? localStorage.getItem(draftKey(userId, id)) : null;
         if (savedDraft !== null) {
           setContent(savedDraft);
         } else if (data.type === 'Coding') {
@@ -233,6 +245,7 @@ export default function QuestionWorkspacePage() {
         } else {
           setContent('');
         }
+        if (userId) setDraftReadyKey(draftKey(userId, id));
       } catch (err) {
         if (active) {
           setLoadError(
@@ -248,7 +261,7 @@ export default function QuestionWorkspacePage() {
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, userId]);
 
   // Live session timer
   useEffect(() => {
@@ -263,13 +276,14 @@ export default function QuestionWorkspacePage() {
 
   // Auto-save draft to localStorage keyed by questionID (guarded against cross-question overwrite)
   useEffect(() => {
-    if (!id || loading || !question || question._id !== id) return;
+    if (!id || !userId || loading || !question || question._id !== id) return;
+    if (draftReadyKey !== draftKey(userId, id)) return;
     try {
-      localStorage.setItem(draftKey(id), content);
+      localStorage.setItem(draftKey(userId, id), content);
     } catch {
       // ignore quota error
     }
-  }, [id, content, loading, question]);
+  }, [id, userId, content, loading, question, draftReadyKey]);
 
   const visibleTestCases = useMemo(() => {
     if (!Array.isArray(question?.testCases)) return [];
@@ -341,19 +355,27 @@ export default function QuestionWorkspacePage() {
     setActiveAction(action);
     setLastFailedAction(null);
     try {
-      const res = await attemptsAPI.submitAttempt({
-        questionID: question._id,
-        submittedCodeOrText: content,
-        timeTakenSeconds: elapsedSeconds,
-        status: 'Attempted',
-      });
+      // Run only evaluates the code (nothing is saved). Submit records an attempt in history.
+      const res =
+        action === 'run'
+          ? await attemptsAPI.runCode({
+              questionID: question._id,
+              submittedCodeOrText: content,
+            })
+          : await attemptsAPI.submitAttempt({
+              questionID: question._id,
+              submittedCodeOrText: content,
+              timeTakenSeconds: elapsedSeconds,
+              status: 'Attempted',
+            });
       setExecutionResult(res);
       setConsoleTab('output');
       if (action === 'submit') {
         setIsSubmitted(true);
-      }
-      if (res?.status === 'Solved') {
-        await checkForModeCompletion();
+        if (userId) localStorage.removeItem(draftKey(userId, question._id));
+        if (res?.status === 'Solved') {
+          await checkForModeCompletion();
+        }
       }
     } catch (err) {
       setSaveError(
@@ -603,7 +625,12 @@ export default function QuestionWorkspacePage() {
 
                   {/* Monaco Python Editor */}
                   <div className="flex-1 min-h-[280px] border-b border-zinc-200 dark:border-[#27272A]">
-                    <PythonEditor value={content} onChange={handleCodeChange} theme={theme} />
+                    <PythonEditor
+                      value={content}
+                      onChange={handleCodeChange}
+                      theme={theme}
+                      modelPath={`${userId || 'anonymous'}-${id}.py`}
+                    />
                   </div>
 
                   {/* Tabbed Test Cases / Execution Output Console */}

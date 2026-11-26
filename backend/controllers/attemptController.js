@@ -13,6 +13,54 @@ const sendServerError = (res, message, error) => {
   return res.status(500).json(payload);
 };
 
+/**
+ * POST /api/attempts/run
+ * Runs the student's code against the test cases and returns the result.
+ * Nothing is saved: Run never creates an attempt, so it never appears in history.
+ */
+const runCode = async (req, res) => {
+  try {
+    const userID = req.user?._id || req.user?.id;
+    if (!userID) {
+      return res.status(401).json({ error: "User authentication is required." });
+    }
+
+    const { questionID, submittedCodeOrText } = req.body || {};
+    if (!questionID || !mongoose.Types.ObjectId.isValid(questionID)) {
+      return res.status(400).json({ error: "A valid questionID is required." });
+    }
+
+    const question = await Question.findById(questionID);
+    if (!question || question.isArchived === true) {
+      return res.status(404).json({ error: "Question not found" });
+    }
+    if (question.type !== "Coding") {
+      return res.status(400).json({ error: "Only coding questions can be run." });
+    }
+    if (typeof submittedCodeOrText !== "string" || !submittedCodeOrText.trim()) {
+      return res.status(400).json({ error: "Submission cannot be empty." });
+    }
+
+    let runnerResult;
+    try {
+      runnerResult = await runPythonCode(submittedCodeOrText, question.testCases);
+    } catch (error) {
+      console.error("Sandbox Error:", error);
+      return res
+        .status(400)
+        .json({ error: "Code execution failed or timed out." });
+    }
+
+    return res.status(200).json({
+      message: "Code executed. Nothing was saved; submit to record an attempt.",
+      status: runnerResult.success ? "Solved" : "Attempted",
+      testDetails: runnerResult.details,
+    });
+  } catch (error) {
+    return sendServerError(res, "Failed to run code", error);
+  }
+};
+
 const submitAttempt = async (req, res) => {
   try {
     // SEC-3: Always derive user identity from the verified JWT attached by protect
@@ -125,21 +173,24 @@ const submitAttempt = async (req, res) => {
         });
       }
 
-      // FR-8 Post-condition: Mark today's Recovery Plan item "Completed"
-      const today = new Date();
-      today.setUTCHours(0, 0, 0, 0);
+      // FR-8 Post-condition: only a Solved attempt marks today's Recovery Plan item "Completed".
+      // Attempted and Skipped attempts leave the item Pending so the student still has to solve it.
+      if (finalStatus === "Solved") {
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0);
 
-      await RecoveryPlan.updateOne(
-        {
-          userID,
-          date: today,
-          "items.questionID": questionID,
-        },
-        {
-          $set: { "items.$.state": "Completed" },
-        },
-        { session },
-      );
+        await RecoveryPlan.updateOne(
+          {
+            userID,
+            date: today,
+            "items.questionID": questionID,
+          },
+          {
+            $set: { "items.$.state": "Completed" },
+          },
+          { session },
+        );
+      }
 
       await session.commitTransaction();
       return res.status(201).json({
@@ -249,4 +300,7 @@ const getAttemptHistory = async (req, res) => {
   }
 };
 
-module.exports = { submitAttempt, getDashboardStats, getAttemptHistory };
+module.exports = { submitAttempt, getDashboardStats, getAttemptHistory,
+  runCode,
+};
+
