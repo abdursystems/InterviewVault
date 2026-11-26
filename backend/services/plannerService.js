@@ -124,20 +124,49 @@ async function diagnoseRootCause(userId) {
 /**
  * FR-8 & FR-9: 5-Slot Recovery Plan Generator
  */
+/**
+ * An item counts as Completed only if the student has a Solved attempt on that question today.
+ * Attempted and Skipped attempts never complete an item.
+ */
+async function syncPlanItemStates(plan, userId, today) {
+  const questionIds = plan.items.map((item) => item.questionID);
+  const solvedToday = await Attempt.find(
+    {
+      userID: userId,
+      questionID: { $in: questionIds },
+      status: "Solved",
+      createdAt: { $gte: today },
+    },
+    "questionID",
+  ).lean();
+  const solvedSet = new Set(solvedToday.map((a) => String(a.questionID)));
+
+  let changed = false;
+  for (const item of plan.items) {
+    const desired = solvedSet.has(String(item.questionID)) ? "Completed" : "Pending";
+    if (item.state !== desired) {
+      item.state = desired;
+      changed = true;
+    }
+  }
+  if (changed) await plan.save();
+  return plan;
+}
+
 async function generateDailyPlan(userId) {
   // Normalize today's date to midnight UTC so there is 1 plan per calendar day
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
   // Return existing plan if already generated today
-  const existingPlan = await RecoveryPlan.findOne({
-    userID: userId,
-    date: today,
-  })
-    .populate("diagnosedSubtopicID", "name")
-    .populate("items.questionID", PLAN_QUESTION_FIELDS);
-  if (existingPlan) {
-    return existingPlan;
+  const storedPlan = await RecoveryPlan.findOne({ userID: userId, date: today });
+  if (storedPlan) {
+    // Re-derive item states from today's attempts so stale "Completed" flags (for example from
+    // an earlier skip) are corrected for plans that already exist.
+    await syncPlanItemStates(storedPlan, userId, today);
+    return await RecoveryPlan.findById(storedPlan._id)
+      .populate("diagnosedSubtopicID", "name")
+      .populate("items.questionID", PLAN_QUESTION_FIELDS);
   }
 
   const diagnosis = await diagnoseRootCause(userId);

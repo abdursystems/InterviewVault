@@ -125,21 +125,24 @@ const submitAttempt = async (req, res) => {
         });
       }
 
-      // FR-8 Post-condition: Mark today's Recovery Plan item "Completed"
-      const today = new Date();
-      today.setUTCHours(0, 0, 0, 0);
+      // FR-8 Post-condition: only a Solved attempt marks today's Recovery Plan item "Completed".
+      // Attempted and Skipped attempts leave the item Pending so the student still has to solve it.
+      if (finalStatus === "Solved") {
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0);
 
-      await RecoveryPlan.updateOne(
-        {
-          userID,
-          date: today,
-          "items.questionID": questionID,
-        },
-        {
-          $set: { "items.$.state": "Completed" },
-        },
-        { session },
-      );
+        await RecoveryPlan.updateOne(
+          {
+            userID,
+            date: today,
+            "items.questionID": questionID,
+          },
+          {
+            $set: { "items.$.state": "Completed" },
+          },
+          { session },
+        );
+      }
 
       await session.commitTransaction();
       return res.status(201).json({
