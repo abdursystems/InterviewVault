@@ -159,6 +159,23 @@ test('validateAuthForm enforces email format, 8-char password minimum, and regis
   assert.deepEqual(validLogin, {});
 });
 
+test('validateAuthForm requires a matching confirm password only when creating an account', () => {
+  const base = { name: 'Maya Chen', email: 'maya@cs.edu', password: 'Password123!' };
+
+  const missing = validateAuthForm('register', base);
+  assert.ok(missing.confirmPassword, 'confirmation is required on register');
+
+  const mismatch = validateAuthForm('register', { ...base, confirmPassword: 'Password123' });
+  assert.equal(mismatch.confirmPassword, 'Passwords do not match.');
+
+  const match = validateAuthForm('register', { ...base, confirmPassword: 'Password123!' });
+  assert.deepEqual(match, {});
+
+  // sign-in has no confirmation field and must not ask for one
+  const login = validateAuthForm('login', { email: 'maya@cs.edu', password: 'Password123!' });
+  assert.equal(login.confirmPassword, undefined);
+});
+
 test('getPythonStarterTemplate extracts function signature from question statement', () => {
   const tpl = getPythonStarterTemplate(
     'Generate Balanced Parentheses\n\nImplement `def generate_parentheses(n: int) -> list[str]` to return all valid combinations.'
@@ -276,6 +293,29 @@ test('countQuestionsAttemptedToday counts unique non-skipped questions attempted
 
   assert.equal(countQuestionsAttemptedToday(history, now), 2);
   assert.equal(countQuestionsAttemptedToday([], now), 0);
+});
+
+test('countQuestionsAttemptedToday ignores wrong or partial submissions (only Solved counts)', () => {
+  const now = new Date(2026, 10, 21, 14, 0, 0);
+  const mkQ = (id: string): QuestionSummary => ({
+    _id: id,
+    statement: `Question ${id}`,
+    topicID: { _id: 't1', name: 'DSA' },
+    subtopicIDs: [],
+    difficulty: 'Easy',
+    type: 'Coding',
+  });
+  const wrongOnly: AttemptRecord[] = [
+    { _id: 'w1', questionID: mkQ('q1'), status: 'Attempted', timeTakenSeconds: 60, createdAt: new Date(2026, 10, 21, 9, 0, 0).toISOString() },
+    { _id: 'w2', questionID: mkQ('q2'), status: 'Attempted', timeTakenSeconds: 60, createdAt: new Date(2026, 10, 21, 10, 0, 0).toISOString() },
+  ];
+  assert.equal(countQuestionsAttemptedToday(wrongOnly, now), 0, 'failed submissions must not change the streak');
+
+  const oneSolved: AttemptRecord[] = [
+    ...wrongOnly,
+    { _id: 's1', questionID: mkQ('q1'), status: 'Solved', timeTakenSeconds: 90, createdAt: new Date(2026, 10, 21, 11, 0, 0).toISOString() },
+  ];
+  assert.equal(countQuestionsAttemptedToday(oneSolved, now), 1);
 });
 
 test('extractTopicId normalizes populated objects, raw string IDs, and nullish values', () => {

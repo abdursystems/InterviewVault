@@ -239,11 +239,12 @@ export function computePlanProgress(plan: RecoveryPlan | null | undefined): {
  */
 export function validateAuthForm(
   mode: 'login' | 'register',
-  values: { name?: string; email: string; password: string }
+  values: { name?: string; email: string; password: string; confirmPassword?: string }
 ): Record<string, string> {
   const errors: Record<string, string> = {};
   const email = (values.email || '').trim();
   const password = values.password || '';
+  const confirmPassword = values.confirmPassword || '';
   const name = (values.name || '').trim();
 
   if (mode === 'register') {
@@ -265,6 +266,14 @@ export function validateAuthForm(
     errors.password = 'Password is required.';
   } else if (password.length < 8) {
     errors.password = 'Password must be at least 8 characters.';
+  }
+
+  if (mode === 'register') {
+    if (!confirmPassword) {
+      errors.confirmPassword = 'Please confirm your password.';
+    } else if (confirmPassword !== password) {
+      errors.confirmPassword = 'Passwords do not match.';
+    }
   }
 
   return errors;
@@ -694,6 +703,11 @@ export function buildModeTransitionInfo(
  * Counts distinct questions attempted (Solved or Attempted, excluding Skipped)
  * on the current local calendar day.
  */
+/**
+ * Daily streak: the number of distinct questions the student SOLVED today.
+ * Only a Solved attempt counts (the code passed every test case and was submitted).
+ * Attempted (wrong or partial code), Skipped and Run-only actions never change the streak.
+ */
 export function countQuestionsAttemptedToday(
   history: AttemptRecord[] | null | undefined,
   now: Date = new Date()
@@ -708,7 +722,7 @@ export function countQuestionsAttemptedToday(
   const seenQuestions = new Set<string>();
 
   for (const attempt of history) {
-    if (!attempt || attempt.status === 'Skipped' || !attempt.createdAt) {
+    if (!attempt || attempt.status !== 'Solved' || !attempt.createdAt) {
       continue;
     }
     const parsed = new Date(attempt.createdAt);
